@@ -1159,6 +1159,36 @@ function Btn({ children, onClick, variant = "primary", disabled, className = "",
     </button>
   );
 }
+// Darken/lighten a hex color by percent (negative = darker), used to build a
+// subtle gradient for the team crest without needing any external assets.
+function shadeColor(hex, percent) {
+  if (!hex) return "#334155";
+  const f = parseInt(hex.slice(1), 16), t = percent < 0 ? 0 : 255, p = Math.abs(percent) / 100;
+  const R = f >> 16, G = (f >> 8) & 0x00ff, B = f & 0x0000ff;
+  return "#" + (0x1000000 + (Math.round((t - R) * p) + R) * 0x10000 + (Math.round((t - G) * p) + G) * 0x100 + (Math.round((t - B) * p) + B)).toString(16).slice(1);
+}
+
+// Generated team crest: a shield in the team's own colors with its
+// abbreviation. No external images/real logos involved — just SVG shapes
+// built from the c1/c2 colors already on TEAM_META.
+function TeamLogo({ abbr, size = 28 }) {
+  const t = TEAM_META.find((x) => x.abbr === abbr);
+  if (!t) return <div style={{ width: size, height: size }} className="rounded-full bg-white/10 shrink-0" />;
+  const gid = `crest-${abbr}`;
+  return (
+    <svg width={size} height={size} viewBox="0 0 40 44" className="shrink-0">
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={shadeColor(t.c1, 18)} />
+          <stop offset="100%" stopColor={shadeColor(t.c1, -22)} />
+        </linearGradient>
+      </defs>
+      <path d="M20 1 L37 7 V21 C37 32 30 40 20 43 C10 40 3 32 3 21 V7 Z" fill={`url(#${gid})`} stroke={t.c2} strokeWidth="2" />
+      <text x="20" y="26" textAnchor="middle" fontSize="13" fontWeight="900" fill="#fff" fontFamily="system-ui, sans-serif" style={{ letterSpacing: "-0.5px" }}>{abbr}</text>
+    </svg>
+  );
+}
+
 function PosPill({ pos }) {
   return <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white/10 text-slate-300">{pos}</span>;
 }
@@ -1359,6 +1389,13 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound }) {
 
   return (
     <div className="pb-24">
+      <div className="flex items-center gap-3 mb-4">
+        <TeamLogo abbr={myTeam.abbr} size={44} />
+        <div>
+          <div className="text-lg font-black leading-tight">{tm.city} {tm.name}</div>
+          <div className="text-xs text-slate-500">{career.year} · {myTeam.wins}-{myTeam.losses}{myTeam.ties ? `-${myTeam.ties}` : ""}</div>
+        </div>
+      </div>
       {gamePending && (
         <Card className="mb-4 border-amber-400/40">
           <div className="text-sm font-semibold mb-1">🏈 Você tem um jogo em andamento</div>
@@ -1387,7 +1424,7 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound }) {
                   <div className="text-xs text-slate-500">{isHome ? "Em casa vs" : "Fora contra"}</div>
                   <div className="font-black text-xl">{oppTeam.city} {oppTeam.name}</div>
                 </div>
-                <div className="text-3xl">🏈</div>
+                <TeamLogo abbr={oppAbbr} size={44} />
               </div>
               <Btn className="w-full mt-4 py-3" color={tm.c1} disabled={gamePending} onClick={onPlayWeek}>Jogar semana {career.week}</Btn>
             </>
@@ -1447,7 +1484,10 @@ function RosterScreen({ myTeam }) {
   const groups = ["QB", "RB", "WR", "TE", "OL", "DL", "LB", "CB", "S", "K", "P"];
   return (
     <div className="pb-24">
-      <h2 className="text-xl font-black mb-1">Elenco</h2>
+      <div className="flex items-center gap-2 mb-1">
+        <TeamLogo abbr={myTeam.abbr} size={26} />
+        <h2 className="text-xl font-black">Elenco</h2>
+      </div>
       <p className="text-xs text-slate-500 mb-4">{myTeam.roster.length} jogadores · cap usado ${capUsed(myTeam.roster).toFixed(1)}M / ${CAP}M</p>
       {groups.map((pos) => {
         const players = myTeam.roster.filter((p) => p.pos === pos).sort((a, b) => b.ovr - a.ovr);
@@ -1469,7 +1509,61 @@ function RosterScreen({ myTeam }) {
 
 const RESERVE_SLOTS = new Set(["QB2", "RB2", "BEN1", "BEN2", "BEN3", "BEN4", "BEN5"]);
 
+// Fixed coordinates (0-300 x, 0-170 y) for a base 11-personnel offensive
+// look and a base 4-3/3-4 defensive shell, purely visual — the actual play
+// logic doesn't care where the dot sits on this diagram.
+const OFFENSE_COORDS = {
+  WR1: { x: 14, y: 92 }, TE1: { x: 246, y: 96 }, WR3: { x: 252, y: 78 }, WR2: { x: 288, y: 86 },
+  LT: { x: 78, y: 100 }, LG: { x: 111, y: 100 }, C: { x: 144, y: 100 }, RG: { x: 177, y: 100 }, RT: { x: 210, y: 100 },
+  QB1: { x: 144, y: 124 }, RB1: { x: 168, y: 140 },
+};
+const DEFENSE_COORDS = {
+  "4-3": {
+    DE1: { x: 84, y: 40 }, DT1: { x: 122, y: 46 }, DT2: { x: 166, y: 46 }, DE2: { x: 204, y: 40 },
+    LB3: { x: 96, y: 74 }, LB1: { x: 144, y: 78 }, LB2: { x: 188, y: 74 },
+    CB1: { x: 26, y: 100 }, CB3: { x: 200, y: 96 }, CB2: { x: 262, y: 100 }, S1: { x: 112, y: 132 }, S2: { x: 176, y: 132 },
+  },
+  "3-4": {
+    DE1: { x: 92, y: 42 }, NT1: { x: 144, y: 48 }, DE2: { x: 196, y: 42 },
+    LB3: { x: 66, y: 72 }, LB1: { x: 118, y: 80 }, LB2: { x: 172, y: 80 }, LB4: { x: 214, y: 72 },
+    CB1: { x: 26, y: 100 }, CB3: { x: 200, y: 96 }, CB2: { x: 262, y: 100 }, S1: { x: 112, y: 132 }, S2: { x: 176, y: 132 },
+  },
+};
+
+function FormationDot({ label, name, x, y, color }) {
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <circle r="11" fill={color} stroke="rgba(255,255,255,0.6)" strokeWidth="1.5" />
+      <text textAnchor="middle" y="4" fontSize="9" fontWeight="800" fill="#0B1220" fontFamily="system-ui, sans-serif">{label}</text>
+      <text textAnchor="middle" y="22" fontSize="8" fill="#cbd5e1" fontFamily="system-ui, sans-serif">{name}</text>
+    </g>
+  );
+}
+
+// A compact field diagram of the starting offense or defense, drawn from
+// each starter's slot on the depth chart — the visual companion to the list
+// view below it, so you can see the shape of the unit at a glance.
+function FormationField({ myTeam, side }) {
+  const coords = side === "offense" ? OFFENSE_COORDS : DEFENSE_COORDS[myTeam.scheme] || DEFENSE_COORDS["4-3"];
+  const color = side === "offense" ? "#38bdf8" : "#f97316";
+  const lastName = (full) => full.split(" ").slice(-1)[0];
+  return (
+    <svg viewBox="0 0 300 170" className="w-full h-44 rounded-md" style={{ background: "#0d2818" }}>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <line key={i} x1={0} y1={20 + i * 28} x2={300} y2={20 + i * 28} stroke="rgba(255,255,255,0.08)" strokeWidth="1" />
+      ))}
+      <line x1={0} y1={112} x2={300} y2={112} stroke="rgba(56,189,248,0.5)" strokeWidth="1.5" strokeDasharray="4,3" />
+      {Object.entries(coords).map(([slot, pos]) => {
+        const p = myTeam.roster.find((pl) => pl.slot === slot);
+        if (!p) return null;
+        return <FormationDot key={slot} label={slot.replace(/[0-9]/g, "") || slot} name={lastName(p.name)} x={pos.x} y={pos.y} color={color} />;
+      })}
+    </svg>
+  );
+}
+
 function DepthChartScreen({ myTeam, onSwap }) {
+  const [side, setSide] = useState("offense");
   const dlSlots = myTeam.scheme === "3-4" ? ["DE1", "DE2", "NT1"] : ["DE1", "DE2", "DT1", "DT2"];
   const lbSlots = myTeam.scheme === "3-4" ? ["LB1", "LB2", "LB3", "LB4"] : ["LB1", "LB2", "LB3"];
   const groupSlots = {
@@ -1487,7 +1581,14 @@ function DepthChartScreen({ myTeam, onSwap }) {
     <div className="pb-24">
       <h2 className="text-xl font-black mb-1">Escalação</h2>
       <p className="text-xs text-slate-500 mb-1">Esquema defensivo: <span className="text-slate-200 font-semibold">{myTeam.scheme}</span></p>
-      <p className="text-xs text-slate-500 mb-4">Toque em um jogador e depois em outro da mesma posição para trocar de ordem.</p>
+      <p className="text-xs text-slate-500 mb-3">Toque em um jogador e depois em outro da mesma posição para trocar de ordem.</p>
+      <Card className="mb-4 !p-2">
+        <div className="flex gap-2 mb-2">
+          <button onClick={() => setSide("offense")} className={`flex-1 text-xs font-semibold py-1.5 rounded-md ${side === "offense" ? "bg-sky-500/20 text-sky-300 border border-sky-500/40" : "bg-white/5 text-slate-400 border border-transparent"}`}>Ataque em campo</button>
+          <button onClick={() => setSide("defense")} className={`flex-1 text-xs font-semibold py-1.5 rounded-md ${side === "defense" ? "bg-orange-500/20 text-orange-300 border border-orange-500/40" : "bg-white/5 text-slate-400 border border-transparent"}`}>Defesa em campo</button>
+        </div>
+        <FormationField myTeam={myTeam} side={side} />
+      </Card>
       {Object.entries(groupSlots).map(([label, slots]) => (
         <Card key={label} className="mb-3">
           <div className="text-xs text-slate-400 mb-1">{label}</div>
@@ -1597,10 +1698,10 @@ function ScheduleScreen({ career, myTeam }) {
             <div key={c} className="mb-2">
               <div className="text-[11px] text-slate-500 uppercase mb-1">{c.toUpperCase()}</div>
               {(career.playoffs[c + "Bracket"] || []).map((m, i) => (
-                <div key={i} className="flex justify-between text-sm py-0.5">
-                  <span className={m.winner === m.a?.abbr ? "text-green-400" : ""}>{m.a ? `${m.a.abbr} (${m.a.seed})` : "BYE"}</span>
+                <div key={i} className="flex items-center justify-between text-sm py-1">
+                  <span className={`flex items-center gap-1.5 ${m.winner === m.a?.abbr ? "text-green-400" : ""}`}>{m.a && <TeamLogo abbr={m.a.abbr} size={18} />}{m.a ? `${m.a.abbr} (${m.a.seed})` : "BYE"}</span>
                   <span className="tabular-nums">{m.score ? `${m.score[m.a?.abbr]}-${m.score[m.b?.abbr]}` : "vs"}</span>
-                  <span className={m.winner === m.b?.abbr ? "text-green-400" : ""}>{m.b ? `${m.b.abbr} (${m.b.seed})` : "BYE"}</span>
+                  <span className={`flex items-center gap-1.5 ${m.winner === m.b?.abbr ? "text-green-400" : ""}`}>{m.b ? `${m.b.abbr} (${m.b.seed})` : "BYE"}{m.b && <TeamLogo abbr={m.b.abbr} size={18} />}</span>
                 </div>
               ))}
             </div>
@@ -1611,9 +1712,12 @@ function ScheduleScreen({ career, myTeam }) {
         {divs.map(([conf, div]) => (
           <Card key={conf + div}>
             <div className="text-xs text-slate-400 mb-1">{conf} {div}</div>
-            {divTeams(conf, div).map((t) => (
-              <div key={t.abbr} className={`flex justify-between text-sm py-1 ${t.abbr === myTeam.abbr ? "font-bold text-white" : "text-slate-300"}`}>
-                <span>{t.abbr}</span>
+            {divTeams(conf, div).map((t, i) => (
+              <div key={t.abbr} className={`flex items-center justify-between text-sm py-1.5 ${i > 0 ? "border-t border-white/5" : ""} ${t.abbr === myTeam.abbr ? "font-bold text-white" : "text-slate-300"}`}>
+                <div className="flex items-center gap-2">
+                  <TeamLogo abbr={t.abbr} size={22} />
+                  <span>{t.abbr}</span>
+                </div>
                 <span className="tabular-nums">{t.wins}-{t.losses}{t.ties ? `-${t.ties}` : ""} <span className="text-slate-500">({t.pf}-{t.pa})</span></span>
               </div>
             ))}
@@ -1654,7 +1758,7 @@ function TeamBoxScore({ abbr, list }) {
   const picker = bestBy(list, "interceptions");
   return (
     <div>
-      <div className="text-xs font-bold text-slate-400 mb-1">{abbr}</div>
+      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400 mb-1"><TeamLogo abbr={abbr} size={16} />{abbr}</div>
       <BoxScoreLine p={passer} />
       {rushers.map((r) => <BoxScoreLine key={r.id} p={r} />)}
       <BoxScoreLine p={receiver} />
@@ -1690,9 +1794,9 @@ function ResultsScreen({ career }) {
           return (
             <Card key={i}>
               <button className="w-full flex items-center justify-between" onClick={() => setOpenIdx(open ? null : i)}>
-                <span className={`text-sm ${!homeWon ? "font-bold text-white" : "text-slate-300"}`}>{g.away}</span>
+                <span className={`flex items-center gap-2 text-sm ${!homeWon ? "font-bold text-white" : "text-slate-300"}`}><TeamLogo abbr={g.away} size={24} />{g.away}</span>
                 <span className="text-sm font-black tabular-nums">{g.awayScore} — {g.homeScore}</span>
-                <span className={`text-sm ${homeWon ? "font-bold text-white" : "text-slate-300"}`}>{g.home}</span>
+                <span className={`flex items-center gap-2 text-sm ${homeWon ? "font-bold text-white" : "text-slate-300"}`}>{g.home}<TeamLogo abbr={g.home} size={24} /></span>
               </button>
               {open && g.boxScore && (
                 <div className="grid grid-cols-2 gap-4 mt-3 pt-3 border-t border-white/10">
@@ -1790,9 +1894,9 @@ function GameScreen({ career, myTeam, go, onAdvance, onSimAll }) {
       <Card className="mb-3 text-center">
         <div className="text-xs text-slate-400 mb-1">{finished ? "Final" : "Ao vivo"}</div>
         <div className="flex items-center justify-center gap-6">
-          <div><div className="text-xs text-slate-400">{awayT.abbr}</div><div className="text-3xl font-black tabular-nums">{liveScore[g.away] ?? 0}</div></div>
+          <div className="flex flex-col items-center gap-1"><TeamLogo abbr={g.away} size={34} /><div className="text-xs text-slate-400">{awayT.abbr}</div><div className="text-3xl font-black tabular-nums">{liveScore[g.away] ?? 0}</div></div>
           <div className="text-slate-600">—</div>
-          <div><div className="text-xs text-slate-400">{homeT.abbr}</div><div className="text-3xl font-black tabular-nums">{liveScore[g.home] ?? 0}</div></div>
+          <div className="flex flex-col items-center gap-1"><TeamLogo abbr={g.home} size={34} /><div className="text-xs text-slate-400">{homeT.abbr}</div><div className="text-3xl font-black tabular-nums">{liveScore[g.home] ?? 0}</div></div>
         </div>
       </Card>
       <MiniField play={curPlay} offTeam={curOffTeam} defTeam={curDefTeam} />
