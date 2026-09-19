@@ -374,16 +374,16 @@ const ROUTE_CONCEPTS = [
   { name: "bomba (go) pro Z", targetSlot: "WR2", defenderSlot: "CB2", depth: "deep", dir: "direita", baseYards: 22, baseComplete: 0.4, baseInt: 0.08, varLow: -8, varHigh: 18, bigPlayChance: 0.1 },
 ];
 
-// Run gaps: purely a flavor/visual layer (which side of the line the back
-// hits) laid on top of the already-tuned yardage formula below, so the
-// mini-field has a direction to draw without re-touching the calibrated ypc.
+// Run gaps: each one now names the lineman primarily responsible for that
+// hole, so his individual run-block rating (vs. the defender who'd fill
+// that gap) feeds into the yardage — not just flavor/visual direction.
 const RUN_GAPS = [
-  { dir: "esquerda", label: "por fora à esquerda" },
-  { dir: "esquerda", label: "entre guarda e tackle esquerdo" },
-  { dir: "meio", label: "pelo meio" },
-  { dir: "meio", label: "pelo meio" },
-  { dir: "direita", label: "entre guarda e tackle direito" },
-  { dir: "direita", label: "por fora à direita" },
+  { dir: "esquerda", label: "por fora à esquerda", blockerSlot: "LT" },
+  { dir: "esquerda", label: "entre guarda e tackle esquerdo", blockerSlot: "LG" },
+  { dir: "meio", label: "pelo meio", blockerSlot: "C" },
+  { dir: "meio", label: "pelo meio", blockerSlot: "C" },
+  { dir: "direita", label: "entre guarda e tackle direito", blockerSlot: "RG" },
+  { dir: "direita", label: "por fora à direita", blockerSlot: "RT" },
 ];
 
 function pickRouteConcept(rng, down, distance, tendO, excludeRB, personnel) {
@@ -520,14 +520,14 @@ function simPlay(offAbbr, defAbbr, offRoster, defRoster, down, distance, ballOn,
       if (rng() < 0.12) {
         const loss = randInt(rng, 2, 8);
         statAdd(qb, "fumbles", 1); statAdd(qb, "sacksTaken", 1);
-        statAdd(prot.rusher, "sacks", 1); statAdd(prot.rusher, "qbHits", 1); statAdd(prot.rusher, "forcedFumbles", 1);
-        if (prot.blocker) statAdd(prot.blocker, "pressuresAllowed", 1);
+        statAdd(prot.rusher, "sacks", 1); statAdd(prot.rusher, "qbHits", 1); statAdd(prot.rusher, "forcedFumbles", 1); statAdd(prot.rusher, "tacklesForLoss", 1);
+        if (prot.blocker) { statAdd(prot.blocker, "pressuresAllowed", 1); statAdd(prot.blocker, "sacksAllowed", 1); }
         return { yards: -loss, desc: `${qb.name} sofre um strip-sack de ${prot.rusher.name} (${prot.edge})${personnelTag} — bola solta!`, isPass: true, turnover: "FUM", dir: sackDir, depth: "sack", personnel, elapsed: randInt(rng, 30, 42) };
       }
       const loss = randInt(rng, 4, 11);
       statAdd(qb, "sacksTaken", 1);
-      statAdd(prot.rusher, "sacks", 1); statAdd(prot.rusher, "qbHits", 1);
-      if (prot.blocker) statAdd(prot.blocker, "pressuresAllowed", 1);
+      statAdd(prot.rusher, "sacks", 1); statAdd(prot.rusher, "qbHits", 1); statAdd(prot.rusher, "tacklesForLoss", 1);
+      if (prot.blocker) { statAdd(prot.blocker, "pressuresAllowed", 1); statAdd(prot.blocker, "sacksAllowed", 1); }
       const sackDesc = prot.blitz ? `sacado no blitz por ${prot.rusher.name}` : `sacado por ${prot.rusher.name} pelo ${prot.edge}`;
       return { yards: -loss, desc: `${qb.name} não tem tempo — ${sackDesc}${personnelTag} (${loss} jds).`, isPass: true, sack: true, dir: sackDir, depth: "sack", personnel, elapsed: randInt(rng, 30, 42) };
     }
@@ -578,19 +578,27 @@ function simPlay(offAbbr, defAbbr, offRoster, defRoster, down, distance, ballOn,
     const rb2Share = tendO?.rb2CarryShare ?? 0.2;
     const rb = (rb2 && rb2.id !== rb1.id && rng() < rb2Share) ? rb2 : rb1;
     const oRate = offenseRating(offRoster, "run", rb), dRate = defenseRating(defRoster, "run");
-    const diff = (oRate - dRate) / 10 + pInfo.runBonus;
     const gap = pick(rng, RUN_GAPS);
+    const blocker = slotPlayer(offRoster, gap.blockerSlot);
+    const runDefender = pickW(rng, frontSeven, (p) => p.attrs.RUN || p.ovr);
+    const blockDiff = blocker ? ((blocker.attrs.RBK || blocker.ovr) - (runDefender.attrs.RUN || runDefender.ovr) + randInt(rng, -10, 10)) / 20 : 0;
+    const diff = (oRate - dRate) / 10 + pInfo.runBonus + blockDiff;
     if (rng() < clamp(0.02 - diff * 0.005, 0.005, 0.06)) {
       const defender = pickW(rng, frontSeven, (p) => p.attrs.RUN || p.ovr);
       statAdd(rb, "fumbles", 1);
       statAdd(defender, "fumbleRecoveries", 1);
       return { yards: 0, desc: `${rb.name} perde a bola! Recuperada por ${defender.name}.`, isPass: false, turnover: "FUM", dir: gap.dir, depth: "run", personnel, elapsed: randInt(rng, 28, 38) };
     }
-    let yards = Math.max(-3, Math.round(2.6 + diff * 2.2 + randInt(rng, -3, 5)));
+    let yards = Math.max(-3, Math.round(2.0 + diff * 2.2 + randInt(rng, -3, 5)));
     if (rng() < 0.05) yards += randInt(rng, 12, 30);
     const tackler = pickW(rng, [...frontSeven, ...secondary.filter((p) => p.pos === "S")], tackleWeight);
     statAdd(rb, "rushYards", yards); statAdd(rb, "rushAttempts", 1);
     statAdd(tackler, "tackles", 1);
+    if (blocker) {
+      statAdd(blocker, "runBlockSnaps", 1);
+      if (yards >= 4) statAdd(blocker, "runBlockWins", 1);
+      else if (yards <= 0) { statAdd(blocker, "runStuffsAllowed", 1); statAdd(runDefender, "tacklesForLoss", 1); }
+    }
     return { yards, desc: `${rb.name} corre ${gap.label}${personnelTag}, derrubado por ${tackler.name} (${yards} jds).`, isPass: false, rusher: rb, dir: gap.dir, depth: "run", personnel, elapsed: randInt(rng, 28, 40) };
   }
 }
@@ -681,6 +689,8 @@ function simGameDetailed(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
         const kicker = activePlayer(offTeam.roster, "K1");
         const { good, kickDist } = attemptFG(kicker, yardsToGoal, rng);
         statAdd(kicker, "fgAttempts", 1); if (good) statAdd(kicker, "fgMade", 1);
+        if (kickDist >= 40) { statAdd(kicker, "fgAttempts40", 1); if (good) statAdd(kicker, "fgMade40", 1); }
+        if (kickDist >= 50) { statAdd(kicker, "fgAttempts50", 1); if (good) statAdd(kicker, "fgMade50", 1); }
         push(`Tentativa de FG de ${kickDist} jds por ${kicker.name}: ${good ? "É BOA! 🏈" : "NÃO PASSA."}`, label(), { offAbbr, defAbbr, down, distance, ballOn, yards: good ? yardsToGoal : 0, isPass: null, dir: "meio", kind: good ? "fieldgoal-good" : "fieldgoal-miss" });
         elapsed = randInt(rng, 6, 10);
         if (good) { score[offAbbr] += 3; kickoffReset(offAbbr); } else { possession = defAbbr; down = 1; distance = 10; ballOn = clamp(100 - yardsToGoal, 2, 98); }
@@ -838,6 +848,17 @@ function quickGameStats(offRoster, defRoster, teamScore, rng, tendO) {
   const linemen = offRoster.filter((p) => p.pos === "OL");
   let pressuresLeft = hits + hurries + sacks;
   while (pressuresLeft-- > 0 && linemen.length) statAdd(pick(rng, linemen), "pressuresAllowed", 1);
+  let sacksLeft = sacks;
+  while (sacksLeft-- > 0 && linemen.length) statAdd(pick(rng, linemen), "sacksAllowed", 1);
+  // Approximate run-block win/loss splits per lineman, roughly consistent
+  // with the ~55-65% win rate the play-by-play engine produces.
+  let runSnapsLeft = rushAttemptsTotal;
+  while (runSnapsLeft-- > 0 && linemen.length) {
+    const l = pick(rng, linemen);
+    statAdd(l, "runBlockSnaps", 1);
+    if (rng() < 0.58) statAdd(l, "runBlockWins", 1);
+    else if (rng() < 0.4) statAdd(l, "runStuffsAllowed", 1);
+  }
   const secondary = defRoster.filter((p) => p.pos === "CB" || p.pos === "S");
   if (rng() < 0.35 && secondary.length) statAdd(pick(rng, secondary), "interceptions", 1);
   let pdLeft = randInt(rng, 3, 8);
@@ -845,9 +866,13 @@ function quickGameStats(offRoster, defRoster, teamScore, rng, tendO) {
 
   const kicker = activePlayer(offRoster, "K1");
   const fgAttempts = randInt(rng, 1, 4);
-  const fgMade = Math.round(fgAttempts * (0.72 + rng() * 0.2));
-  statAdd(kicker, "fgAttempts", fgAttempts);
-  statAdd(kicker, "fgMade", fgMade);
+  for (let i = 0; i < fgAttempts; i++) {
+    const yardsToGoal = randInt(rng, 3, 40);
+    const { good, kickDist } = attemptFG(kicker, yardsToGoal, rng);
+    statAdd(kicker, "fgAttempts", 1); if (good) statAdd(kicker, "fgMade", 1);
+    if (kickDist >= 40) { statAdd(kicker, "fgAttempts40", 1); if (good) statAdd(kicker, "fgMade40", 1); }
+    if (kickDist >= 50) { statAdd(kicker, "fgAttempts50", 1); if (good) statAdd(kicker, "fgMade50", 1); }
+  }
   const xpAttempts = Math.max(0, tds - Math.round(tds * 0.15));
   statAdd(kicker, "xpAttempts", xpAttempts);
   statAdd(kicker, "xpMade", Math.round(xpAttempts * 0.96));
@@ -1017,8 +1042,10 @@ function insertPlayer(roster, slotKey, newPlayer) {
 }
 const STAT_CATEGORIES = [
   { key: "passYards", label: "Jardas aéreas", pos: "QB" },
+  { key: "passCompletionPct", label: "% de passes completos", pos: "QB" },
   { key: "passTD", label: "Passes para TD", pos: "QB" },
   { key: "rushYards", label: "Jardas terrestres", pos: "RB" },
+  { key: "rushYPC", label: "Jardas por corrida (YPC)", pos: "RB" },
   { key: "rushTD", label: "Corridas para TD", pos: "RB" },
   { key: "receptions", label: "Recepções", pos: null },
   { key: "receivingYards", label: "Jardas recebidas", pos: null },
@@ -1030,14 +1057,50 @@ const STAT_CATEGORIES = [
   { key: "interceptions", label: "Interceptações", pos: null },
   { key: "passesDefended", label: "Passes defendidos", pos: null },
   { key: "fgMade", label: "Field goals convertidos", pos: "K" },
+  { key: "fgPct", label: "% de field goals", pos: "K" },
+  { key: "fgPct40", label: "% de FG 40+ jardas", pos: "K" },
+  { key: "fgPct50", label: "% de FG 50+ jardas", pos: "K" },
+  { key: "runBlockWinPct", label: "% de duelos de bloqueio vencidos", pos: "OL" },
+  { key: "pressuresAllowed", label: "Pressões sofridas", pos: "OL" },
+  { key: "sacksAllowed", label: "Sacks sofridos", pos: "OL" },
 ];
 
+// Percentage/average categories: computed as num/den (with a minimum sample
+// so a 1-for-1 kicker doesn't lead the league), instead of a raw counting stat.
+const RATIO_STATS = {
+  passCompletionPct: { num: "passCompletions", den: "passAttempts", min: 40, mult: 100, decimals: 1, suffix: "%" },
+  rushYPC: { num: "rushYards", den: "rushAttempts", min: 20, mult: 1, decimals: 1, suffix: " ypc" },
+  fgPct: { num: "fgMade", den: "fgAttempts", min: 5, mult: 100, decimals: 1, suffix: "%" },
+  fgPct40: { num: "fgMade40", den: "fgAttempts40", min: 3, mult: 100, decimals: 1, suffix: "%" },
+  fgPct50: { num: "fgMade50", den: "fgAttempts50", min: 2, mult: 100, decimals: 1, suffix: "%" },
+  runBlockWinPct: { num: "runBlockWins", den: "runBlockSnaps", min: 15, mult: 100, decimals: 1, suffix: "%" },
+};
+function statRatioValue(p, key) {
+  const r = RATIO_STATS[key];
+  if (!r) return null;
+  const den = p.seasonStats?.[r.den] || 0;
+  if (den < r.min) return null;
+  const num = p.seasonStats?.[r.num] || 0;
+  return (num / den) * r.mult;
+}
+function formatStatValue(key, value) {
+  const r = RATIO_STATS[key];
+  if (!r || value === null || value === undefined) return value;
+  return `${value.toFixed(r.decimals)}${r.suffix}`;
+}
+
 function leagueLeaders(teams, statKey, n = 5) {
+  const ratio = RATIO_STATS[statKey];
   const rows = [];
   Object.values(teams).forEach((t) => {
     t.roster.forEach((p) => {
-      const val = p.seasonStats?.[statKey];
-      if (val) rows.push({ player: p, teamAbbr: t.abbr, value: val });
+      if (ratio) {
+        const v = statRatioValue(p, statKey);
+        if (v !== null) rows.push({ player: p, teamAbbr: t.abbr, value: v });
+      } else {
+        const val = p.seasonStats?.[statKey];
+        if (val) rows.push({ player: p, teamAbbr: t.abbr, value: val });
+      }
     });
   });
   rows.sort((a, b) => b.value - a.value);
@@ -1101,13 +1164,29 @@ function PosPill({ pos }) {
 }
 function primaryStatLine(p) {
   const s = p.seasonStats || {};
-  if (p.pos === "QB" && s.passYards) return `${s.passYards} jds, ${s.passTD || 0} TD, ${s.interceptionsThrown || 0} INT`;
-  if (p.pos === "RB" && s.rushYards) return `${s.rushYards} jds, ${s.rushTD || 0} TD`;
+  if (p.pos === "QB" && s.passYards) {
+    const compPct = s.passAttempts ? Math.round((s.passCompletions || 0) / s.passAttempts * 100) : 0;
+    return `${s.passYards} jds, ${compPct}% comp, ${s.passTD || 0} TD, ${s.interceptionsThrown || 0} INT`;
+  }
+  if (p.pos === "RB" && s.rushYards) {
+    const ypc = s.rushAttempts ? (s.rushYards / s.rushAttempts).toFixed(1) : "0.0";
+    return `${s.rushYards} jds, ${ypc} ypc, ${s.rushTD || 0} TD`;
+  }
   if ((p.pos === "WR" || p.pos === "TE") && s.receivingYards) return `${s.receptions || 0} rec, ${s.receivingYards} jds, ${s.receivingTD || 0} TD`;
-  if ((p.pos === "DL" || p.pos === "LB") && (s.tackles || s.sacks || s.qbHits || s.qbHurries)) return `${s.tackles || 0} tackles, ${s.sacks || 0} sacks, ${s.qbHits || 0} QB hits`;
+  if ((p.pos === "DL" || p.pos === "LB") && (s.tackles || s.sacks || s.qbHits || s.qbHurries)) return `${s.tackles || 0} tackles, ${s.sacks || 0} sacks${s.tacklesForLoss ? `, ${s.tacklesForLoss} TFL` : ""}, ${s.qbHits || 0} QB hits`;
   if ((p.pos === "CB" || p.pos === "S") && (s.tackles || s.interceptions || s.passesDefended)) return `${s.tackles || 0} tackles, ${s.interceptions || 0} INT, ${s.passesDefended || 0} PD`;
-  if (p.pos === "OL" && s.pressuresAllowed) return `${s.pressuresAllowed} pressões sofridas`;
-  if (p.pos === "K" && s.fgAttempts) return `${s.fgMade || 0}/${s.fgAttempts} FG`;
+  if (p.pos === "OL" && (s.pressuresAllowed || s.runBlockSnaps)) {
+    const parts = [];
+    if (s.pressuresAllowed) parts.push(`${s.pressuresAllowed} pressões sofridas${s.sacksAllowed ? ` (${s.sacksAllowed} sacks)` : ""}`);
+    if (s.runBlockSnaps) parts.push(`corrida: ${s.runBlockWins || 0}-${s.runStuffsAllowed || 0} nos duelos`);
+    return parts.join(" · ");
+  }
+  if (p.pos === "K" && s.fgAttempts) {
+    const pct = Math.round((s.fgMade || 0) / s.fgAttempts * 100);
+    const p40 = s.fgAttempts40 ? ` · 40+: ${s.fgMade40 || 0}/${s.fgAttempts40}` : "";
+    const p50 = s.fgAttempts50 ? ` · 50+: ${s.fgMade50 || 0}/${s.fgAttempts50}` : "";
+    return `${s.fgMade || 0}/${s.fgAttempts} FG (${pct}%)${p40}${p50}`;
+  }
   if (p.pos === "P" && s.punts) return `${s.punts} punts, ${Math.round((s.puntYards || 0) / s.punts)} jds/punt`;
   return null;
 }
@@ -1696,7 +1775,7 @@ function MiniField({ play, offTeam, defTeam }) {
   );
 }
 
-function GameScreen({ career, myTeam, go, onAdvance }) {
+function GameScreen({ career, myTeam, go, onAdvance, onSimAll }) {
   const g = career.lastGame;
   if (!g) return <div className="pb-24"><Card>Nenhum jogo simulado ainda.</Card></div>;
   const homeT = TEAM_META.find((t) => t.abbr === g.home), awayT = TEAM_META.find((t) => t.abbr === g.away);
@@ -1721,7 +1800,10 @@ function GameScreen({ career, myTeam, go, onAdvance }) {
         {g.log.slice(0, shown).map((l, i) => <div key={i} className="text-slate-300 border-b border-white/5 pb-1 last:border-0">{l}</div>)}
       </Card>
       {!finished ? (
-        <Btn className="w-full" onClick={onAdvance}>Avançar jogadas</Btn>
+        <div className="flex gap-2">
+          <Btn className="flex-1" onClick={onAdvance}>Avançar jogadas</Btn>
+          <Btn variant="ghost" className="flex-1" onClick={onSimAll}>Simular jogo todo ⏭️</Btn>
+        </div>
       ) : (
         <Btn className="w-full" onClick={() => go("hub")}>Voltar ao painel</Btn>
       )}
@@ -1829,8 +1911,13 @@ function StatsScreen({ career, myTeam }) {
   const catDef = STAT_CATEGORIES.find((c) => c.key === cat);
   const leaders = leagueLeaders(career.leagueTeams, cat, 8);
   const myLeaders = STAT_CATEGORIES.map((c) => {
-    const top = [...myTeam.roster].filter((p) => p.seasonStats?.[c.key]).sort((a, b) => (b.seasonStats[c.key] || 0) - (a.seasonStats[c.key] || 0))[0];
-    return { c, top };
+    const ratio = RATIO_STATS[c.key];
+    let top = null, topVal = null;
+    myTeam.roster.forEach((p) => {
+      const v = ratio ? statRatioValue(p, c.key) : (p.seasonStats?.[c.key] || null);
+      if (v !== null && v !== undefined && (topVal === null || v > topVal)) { topVal = v; top = p; }
+    });
+    return { c, top, topVal };
   }).filter((r) => r.top);
 
   return (
@@ -1845,7 +1932,7 @@ function StatsScreen({ career, myTeam }) {
           {myLeaders.map(({ c, top }) => (
             <div key={c.key} className="flex items-center justify-between text-sm">
               <span className="text-slate-400">{c.label}</span>
-              <span className="font-semibold">{top.name} <span className="text-slate-500 tabular-nums">({top.seasonStats[c.key]})</span></span>
+              <span className="font-semibold">{top.name} <span className="text-slate-500 tabular-nums">({formatStatValue(c.key, topVal)})</span></span>
             </div>
           ))}
         </div>
@@ -1874,7 +1961,7 @@ function StatsScreen({ career, myTeam }) {
               <span className="truncate text-sm">{row.player.name}</span>
               <span className="text-[11px] text-slate-500">{row.teamAbbr}</span>
             </div>
-            <span className="tabular-nums text-sm">{row.value}</span>
+            <span className="tabular-nums text-sm">{formatStatValue(cat, row.value)}</span>
           </div>
         ))}
       </Card>
@@ -2215,6 +2302,21 @@ export default function App() {
     });
   }
 
+  function simGameToEnd() {
+    setCareer((prev) => {
+      const c = structuredClone(prev);
+      const g = c.lastGame;
+      if (!g) return c;
+      c.gameRevealCount = g.log.length;
+      if (!g.resolved) {
+        g.resolved = true;
+        if (g.newsLine) c.news.push(g.newsLine);
+        if (g.pressKey) c.pressPending = g.pressKey;
+      }
+      return c;
+    });
+  }
+
   function choosePress(opt) {
     setCareer((prev) => {
       const c = structuredClone(prev);
@@ -2324,7 +2426,7 @@ export default function App() {
         {screen === "tactics" && <TacticsScreen tendencies={career.tendencies} onChange={(t) => setCareer((p) => ({ ...p, tendencies: t }))} />}
         {screen === "schedule" && <ScheduleScreen career={career} myTeam={myTeam} />}
         {screen === "results" && <ResultsScreen career={career} />}
-        {screen === "game" && <GameScreen career={career} myTeam={myTeam} go={go} onAdvance={advanceGameReveal} />}
+        {screen === "game" && <GameScreen career={career} myTeam={myTeam} go={go} onAdvance={advanceGameReveal} onSimAll={simGameToEnd} />}
         {screen === "freeagency" && <FreeAgencyScreen career={career} myTeam={myTeam} onSign={signFreeAgent} />}
         {screen === "draft" && career.draftClass && <DraftScreen career={career} myTeam={myTeam} onDraftPick={draftPick} onSimToMyPick={simToMyPick} />}
         {screen === "trade" && <TradeScreen myTeam={myTeam} career={career} onTrade={proposeTrade} />}
