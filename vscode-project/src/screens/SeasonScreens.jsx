@@ -319,12 +319,13 @@ const MINIFIELD_KIND_META = {
   kickoff: { color: "#94a3b8", label: "Pontapé inicial" },
   penalty: { color: "#fb923c", label: "Penalidade" },
   final: { color: "#64748b", label: "Fim de jogo" },
+  injury: { color: "#f87171", label: "Lesão em campo" },
   info: { color: "#64748b", label: "" },
 };
 
 function isHighlightPlay(p) {
   if (!p) return false;
-  if (["touchdown", "interception", "fumble", "sack", "fieldgoal-good"].includes(p.kind)) return true;
+  if (["touchdown", "interception", "fumble", "sack", "fieldgoal-good", "injury"].includes(p.kind)) return true;
   if ((p.kind === "run" || p.kind === "pass") && (p.yards || 0) >= 20) return true;
   return false;
 }
@@ -383,6 +384,7 @@ function ScoreEventBanner({ play }) {
     : play.kind === "fumble" ? { emoji: "🚨", text: "FUMBLE!", color: "#f87171" }
     : play.kind === "fieldgoal-good" ? { emoji: "🎯", text: "FIELD GOAL!", color: "#c084fc" }
     : play.kind === "sack" ? { emoji: "💥", text: "SACK!", color: "#f87171" }
+    : play.kind === "injury" ? { emoji: "🏥", text: "LESÃO!", color: "#f87171" }
     : (play.kind === "run" || play.kind === "pass") && (play.yards || 0) >= 20 ? { emoji: "⚡", text: "JOGADÃO!", color: "#38bdf8" }
     : null;
   if (!big) return null;

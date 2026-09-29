@@ -26,6 +26,32 @@ function tackleWeight(p) {
   return base * posMult;
 }
 
+// In-game injuries: a small per-play chance for whoever just took the hit
+// (ball carrier, receiver after the catch, or a sacked QB) to go down and
+// not return. `activePlayer()` already benches anyone with injuredWeeks > 0
+// in favor of a healthy backup, so setting it here takes effect on the very
+// next snap — no separate substitution logic needed. Severity mirrors the
+// weekly injury tiers (mostly minor, rarely long-term), independent of the
+// weekly roll so watched games don't get double-counted.
+const INJURY_CHANCE = { sack: 0.01, run: 0.004, pass: 0.0035 };
+const INJURY_TIERS = [
+  { chance: 0.6, weeks: [1, 2] },
+  { chance: 0.27, weeks: [3, 5] },
+  { chance: 0.1, weeks: [6, 9] },
+  { chance: 0.03, weeks: [10, 16] },
+];
+function maybeInjure(rng, player, playKind) {
+  const chance = INJURY_CHANCE[playKind];
+  if (!chance || !player || player.injuredWeeks > 0 || rng() >= chance) return null;
+  let roll = rng(), tier = INJURY_TIERS[0];
+  for (const t of INJURY_TIERS) { if (roll < t.chance) { tier = t; break; } roll -= t.chance; }
+  const weeks = randInt(rng, tier.weeks[0], tier.weeks[1]);
+  player.injuredWeeks = weeks;
+  player.injuryHistory = player.injuryHistory || [];
+  player.injuryHistory.push({ weeks, type: "lesão em campo" });
+  return { id: player.id, name: player.name, pos: player.pos, weeks };
+}
+
 // Snapshot a roster's cumulative season stats before simming a game, then
 // diff afterward, so we can store a self-contained per-game box score
 // without touching how statAdd accumulates season totals.
@@ -232,14 +258,14 @@ function simPlay(offAbbr, defAbbr, offRoster, defRoster, down, distance, ballOn,
         statAdd(qb, "fumbles", 1); statAdd(qb, "sacksTaken", 1);
         statAdd(prot.rusher, "sacks", 1); statAdd(prot.rusher, "qbHits", 1); statAdd(prot.rusher, "forcedFumbles", 1); statAdd(prot.rusher, "tacklesForLoss", 1);
         if (prot.blocker) { statAdd(prot.blocker, "pressuresAllowed", 1); statAdd(prot.blocker, "sacksAllowed", 1); }
-        return { yards: -loss, desc: `${qb.name} sofre um strip-sack de ${prot.rusher.name} (${prot.edge})${personnelTag} — bola solta!`, isPass: true, turnover: "FUM", dir: sackDir, depth: "sack", personnel, elapsed: randInt(rng, 30, 42) };
+        return { yards: -loss, desc: `${qb.name} sofre um strip-sack de ${prot.rusher.name} (${prot.edge})${personnelTag} — bola solta!`, isPass: true, turnover: "FUM", qb, dir: sackDir, depth: "sack", personnel, elapsed: randInt(rng, 30, 42) };
       }
       const loss = randInt(rng, 4, 11);
       statAdd(qb, "sacksTaken", 1);
       statAdd(prot.rusher, "sacks", 1); statAdd(prot.rusher, "qbHits", 1); statAdd(prot.rusher, "tacklesForLoss", 1);
       if (prot.blocker) { statAdd(prot.blocker, "pressuresAllowed", 1); statAdd(prot.blocker, "sacksAllowed", 1); }
       const sackDesc = prot.blitz ? `sacado no blitz por ${prot.rusher.name}` : `sacado por ${prot.rusher.name} pelo ${prot.edge}`;
-      return { yards: -loss, desc: `${qb.name} não tem tempo — ${sackDesc}${personnelTag} (${loss} jds).`, isPass: true, sack: true, dir: sackDir, depth: "sack", personnel, elapsed: randInt(rng, 30, 42) };
+      return { yards: -loss, desc: `${qb.name} não tem tempo — ${sackDesc}${personnelTag} (${loss} jds).`, isPass: true, sack: true, qb, dir: sackDir, depth: "sack", personnel, elapsed: randInt(rng, 30, 42) };
     }
     const hurried = prot.tier === "hit" || prot.tier === "hurry";
     if (hurried) {
@@ -335,8 +361,16 @@ function situationalPassRatio(baseRatio, scoreDiff, quarter, secsLeft) {
 
 function simGameDetailed(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
   const home = leagueTeams[homeAbbr], away = leagueTeams[awayAbbr];
-  const log = [], scoreTimeline = [], plays = [];
+  const log = [], scoreTimeline = [], plays = [], injuries = [];
   const score = { [homeAbbr]: 0, [awayAbbr]: 0 };
+  function checkInjury(result, playKind, offAbbr, defAbbr, down, distance, ballOn, lbl) {
+    const candidate = playKind === "sack" ? result.qb : playKind === "run" ? result.rusher : playKind === "pass" ? result.target : null;
+    const hurt = candidate && maybeInjure(rng, candidate, playKind);
+    if (!hurt) return;
+    injuries.push({ ...hurt, teamAbbr: offAbbr });
+    push(`🏥 ${hurt.name} fica no chão e não retorna a este jogo.`, lbl, { offAbbr, defAbbr, down, distance, ballOn, yards: 0, isPass: null, dir: "meio", kind: "injury" });
+  }
+
   function pushPlay(meta) {
     plays.push({
       offAbbr: meta?.offAbbr ?? possession,
@@ -418,6 +452,7 @@ function simGameDetailed(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
       const downLabel = `${down}ª e ${distance > 0 ? distance : "gol"} na ${fieldSpot(offAbbr, ballOn)}`;
       const playKind = result.penalty ? "penalty" : result.isPass ? (result.turnover === "INT" ? "interception" : result.incomplete ? "incomplete" : result.sack ? "sack" : "pass") : (result.turnover === "FUM" ? "fumble" : "run");
       push(`${downLabel} — ${result.desc}`, label(), { offAbbr, defAbbr, down, distance, ballOn, yards: result.yards, isPass: result.isPass, dir: result.dir, kind: playKind, personnel: result.personnel });
+      checkInjury(result, playKind, offAbbr, defAbbr, down, distance, ballOn, label());
       elapsed = result.elapsed ?? 30;
       if (result.turnover) {
         possession = defAbbr; down = 1; distance = 10; ballOn = clamp(100 - (ballOn + (result.yards || 0)), 2, 98);
@@ -480,6 +515,7 @@ function simGameDetailed(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
       const downLabel = `${down}ª e ${distance > 0 ? distance : "gol"} na ${fieldSpot(offAbbr, ballOn)}`;
       const playKind = result.penalty ? "penalty" : result.isPass ? (result.turnover === "INT" ? "interception" : result.incomplete ? "incomplete" : result.sack ? "sack" : "pass") : (result.turnover === "FUM" ? "fumble" : "run");
       push(`${downLabel} — ${result.desc}`, "OT", { offAbbr, defAbbr, down, distance, ballOn, yards: result.yards, isPass: result.isPass, dir: result.dir, kind: playKind, personnel: result.personnel });
+      checkInjury(result, playKind, offAbbr, defAbbr, down, distance, ballOn, "OT");
       if (result.turnover) { possession = defAbbr; down = 1; distance = 10; ballOn = clamp(100 - (ballOn + (result.yards || 0)), 2, 98); continue; }
       ballOn = clamp(ballOn + result.yards, 0, 100);
       if (ballOn >= 100) {
@@ -495,7 +531,7 @@ function simGameDetailed(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
   log.push(`🏁 FIM DE JOGO: ${away.abbr} ${score[awayAbbr]} — ${score[homeAbbr]} ${home.abbr}`);
   scoreTimeline.push({ [homeAbbr]: score[homeAbbr], [awayAbbr]: score[awayAbbr] });
   pushPlay({ kind: "final" });
-  return { score, log, scoreTimeline, plays };
+  return { score, log, scoreTimeline, plays, injuries };
 }
 
 // Approximate individual stat lines for games that are quick-simmed (every game

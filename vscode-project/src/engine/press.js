@@ -12,9 +12,9 @@
 
 const REPORTERS = [
   { name: "Marina Lopes", outlet: "ESPN Brasil" },
-  { name: "Carlos Bittencourt", outlet: "Rádio da Cidade" },
-  { name: "Renata Duarte", outlet: "Jornal Local" },
-  { name: "Tiago Moraes", outlet: "podcast de estatísticas" },
+  { name: "Carlos Bittencourt", outlet: "Rádio FM" },
+  { name: "Renata Duarte", outlet: "Sportv" },
+  { name: "Tiago Moraes", outlet: "Endzone" },
 ];
 
 function pick(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }

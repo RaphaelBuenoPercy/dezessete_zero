@@ -41,23 +41,81 @@ function shadeColor(hex, percent) {
   return "#" + (0x1000000 + (Math.round((t - R) * p) + R) * 0x10000 + (Math.round((t - G) * p) + G) * 0x100 + (Math.round((t - B) * p) + B)).toString(16).slice(1);
 }
 
-// Generated team crest: a shield in the team's own colors with its
-// abbreviation. No external images/real logos involved — just SVG shapes
-// built from the c1/c2 colors already on TEAM_META.
+// Carrega automaticamente todas as logos existentes em src/components/logos
+const teamLogos = import.meta.glob("./logos/*.png", {
+  eager: true,
+  import: "default",
+});
+
 function TeamLogo({ abbr, size = 28 }) {
   const t = TEAM_META.find((x) => x.abbr === abbr);
-  if (!t) return <div style={{ width: size, height: size }} className="rounded-full bg-white/10 shrink-0" />;
+
+  if (!t) {
+    return (
+      <div
+        style={{ width: size, height: size }}
+        className="rounded-full bg-white/10 shrink-0"
+      />
+    );
+  }
+
+  // Procura a logo correspondente ao abbreviation
+  const logoPath = `./logos/${abbr}.png`;
+  const logo = teamLogos[logoPath];
+
+  // =========================================================
+  // LOGO REAL
+  // =========================================================
+  if (logo) {
+    return (
+      <img
+        src={logo}
+        alt={abbr}
+        width={size}
+        height={size}
+        className="shrink-0 object-contain"
+      />
+    );
+  }
+
+  // =========================================================
+  // FALLBACK — CREST GERADA
+  // =========================================================
   const gid = `crest-${abbr}`;
+
   return (
-    <svg width={size} height={size} viewBox="0 0 40 44" className="shrink-0">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 40 44"
+      className="shrink-0"
+    >
       <defs>
         <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={shadeColor(t.c1, 18)} />
           <stop offset="100%" stopColor={shadeColor(t.c1, -22)} />
         </linearGradient>
       </defs>
-      <path d="M20 1 L37 7 V21 C37 32 30 40 20 43 C10 40 3 32 3 21 V7 Z" fill={`url(#${gid})`} stroke={t.c2} strokeWidth="2" />
-      <text x="20" y="26" textAnchor="middle" fontSize="13" fontWeight="900" fill="#fff" fontFamily="system-ui, sans-serif" style={{ letterSpacing: "-0.5px" }}>{abbr}</text>
+
+      <path
+        d="M20 1 L37 7 V21 C37 32 30 40 20 43 C10 40 3 32 3 21 V7 Z"
+        fill={`url(#${gid})`}
+        stroke={t.c2}
+        strokeWidth="2"
+      />
+
+      <text
+        x="20"
+        y="26"
+        textAnchor="middle"
+        fontSize="13"
+        fontWeight="900"
+        fill="#fff"
+        fontFamily="system-ui, sans-serif"
+        style={{ letterSpacing: "-0.5px" }}
+      >
+        {abbr}
+      </text>
     </svg>
   );
 }

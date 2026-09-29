@@ -178,7 +178,7 @@ export default function App() {
         };
         const beforeH = snapshotRosterStats(c.leagueTeams[myGame.home].roster);
         const beforeA = snapshotRosterStats(c.leagueTeams[myGame.away].roster);
-        const { score, log, scoreTimeline, plays } = simGameDetailed(myGame.home, myGame.away, c.leagueTeams, tendencies, rng);
+        const { score, log, scoreTimeline, plays, injuries: gameInjuries } = simGameDetailed(myGame.home, myGame.away, c.leagueTeams, tendencies, rng);
         applyResult(c.leagueTeams, myGame.home, myGame.away, score[myGame.home], score[myGame.away]);
         myGame.homeScore = score[myGame.home]; myGame.awayScore = score[myGame.away];
         myGame.boxScore = {
@@ -203,6 +203,9 @@ export default function App() {
           pressKey: buildPressEvent("game_result", { myScore: score[c.teamAbbr], oppScore: score[oppAbbr], oppAbbr, rivalryTier: tier, h2h, streak, starPlayer }, rng),
           newsLine: `Semana ${c.week}: ${won ? "Vitória" : "Derrota"} ${score[c.teamAbbr]}-${score[oppAbbr]} vs ${oppAbbr}.`,
         };
+        gameInjuries.filter((inj) => inj.teamAbbr === c.teamAbbr).forEach((inj) => {
+          c.news.push(`🏥 ${inj.name} sofreu lesão em campo e ficará fora por ${inj.weeks} semana(s).`);
+        });
         c.gameRevealCount = Math.min(6, log.length);
       }
 
@@ -213,7 +216,12 @@ export default function App() {
         { chance: 0.13, weeks: [6, 9], label: "lesão grave no joelho" },
         { chance: 0.04, weeks: [10, 16], label: "lesão severa — fora pelo resto da temporada" },
       ];
+      // The two teams in this week's detailed game already had their injury
+      // risk resolved play-by-play above — skip them here so a fresh in-game
+      // injury isn't immediately decremented or double-rolled the same week.
+      const detailedAbbrs = new Set(myGame ? [myGame.home, myGame.away] : []);
       Object.values(c.leagueTeams).forEach((t) => {
+        if (detailedAbbrs.has(t.abbr)) return;
         t.roster.forEach((p) => { if (p.injuredWeeks > 0) p.injuredWeeks -= 1; });
         if (rng() < 0.12) {
           const cand = t.roster.filter((p) => p.injuredWeeks === 0);
@@ -291,6 +299,9 @@ export default function App() {
             pressKey,
             newsLine: `${po.roundLabel}: ${won ? "Vitória" : "Derrota"} ${score[c.teamAbbr]}-${score[oppAbbr]} vs ${oppAbbr}.`,
           };
+          res.injuries.filter((inj) => inj.teamAbbr === c.teamAbbr).forEach((inj) => {
+            c.news.push(`🏥 ${inj.name} sofreu lesão em campo e ficará fora por ${inj.weeks} semana(s).`);
+          });
           c.gameRevealCount = Math.min(6, res.log.length);
         } else {
           score = simGameQuick(homeAbbr, awayAbbr, c.leagueTeams, { home: AI_TEND, away: AI_TEND }, rng);
@@ -439,7 +450,7 @@ export default function App() {
     });
   }
 
-  const HIGHLIGHT_KINDS = new Set(["touchdown", "interception", "fumble", "sack", "fieldgoal-good"]);
+  const HIGHLIGHT_KINDS = new Set(["touchdown", "interception", "fumble", "sack", "fieldgoal-good", "injury"]);
   function isHighlightPlay(p) {
     if (!p) return false;
     if (HIGHLIGHT_KINDS.has(p.kind)) return true;
