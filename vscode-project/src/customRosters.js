@@ -31,8 +31,11 @@
 //   age, years, salary, dev - campos de carreira/contrato (opcionais)
 //
 // Slots disponíveis (ofensivos e especiais, iguais para todo mundo):
-//   QB1, QB2, RB1, RB2, WR1, WR2, WR3, TE1, (LT, LG, C, RG, RT, TODOS ESSES POS EH OL)
+//   QB1, QB2, RB1, RB2, WR1, WR2, WR3, TE1, LT, LG, C, RG, RT,
 //   CB1, CB2, CB3, S1, S2, K1, P1, BEN1..BEN5
+// ATENÇÃO: a linha ofensiva NÃO segue o padrão numerado (nada de OL1,
+// LG1, C1...). Os 5 slots de O-Line são nomeados pela posição real na
+// linha: LT, LG, C, RG, RT — sem número.
 // Slots defensivos de frente (dependem do "scheme" escolhido):
 //   4-3 -> DE1, DE2, DT1, DT2, LB1, LB2, LB3
 //   3-4 -> DE1, DE2, NT1, LB1, LB2, LB3, LB4
@@ -57,58 +60,60 @@
 // ------------------------------------------------------------
 
 export const CUSTOM_ROSTERS = {
-   //Adicione seus times aqui, um por sigla. Veja o exemplo acima.
-   NO: {
-   players: [
-        { slot: "QB1", name: "Tyler Shough", pos: "QB", ovr: 91,
-          attrs: { ARM: 90, ACC: 92 }, age: 26 },
-        { slot: "RB2", name: "Travis Etienne", pos: "RB", ovr: 85,
-          attrs: { SPD: 88, POW: 82 }, age: 27 },
-        { slot: "WR1", name: "Chris Olave", pos: "WR", ovr: 93,
-          attrs: { SPD: 95, HND: 91 }, age: 25 },
-        { slot: "WR2", name: "DeVaughn Vele", pos: "WR", ovr: 84,
-          attrs: { SPD: 82, HND: 86 }, age: 25 },
-        { slot: "WR3", name: "Jordyn Tyson", pos: "WR", ovr: 83,
-          attrs: { SPD: 83, HND: 83 }, age: 22 },
-        { slot: "TE1", name: "Juwan Johnson", pos: "TE", ovr: 84,
-          attrs: { HND: 87, BLK: 81 }, age: 30 },
-        { slot: "LT", name: "Kelvin Banks Jr", pos: "OL", ovr: 84,
+  // Adicione seus times aqui, um por sigla. Veja o exemplo acima.
+  NO: {
+    players: [
+      { slot: "QB1", name: "Tyler Shough", pos: "QB", ovr: 91,
+        attrs: { ARM: 90, ACC: 92 }, age: 26 },
+      { slot: "RB2", name: "Travis Etienne", pos: "RB", ovr: 85,
+        attrs: { SPD: 88, POW: 82 }, age: 27 },
+      { slot: "WR1", name: "Chris Olave", pos: "WR", ovr: 93,
+        attrs: { SPD: 95, HND: 91 }, age: 25 },
+      { slot: "WR2", name: "DeVaughn Vele", pos: "WR", ovr: 84,
+        attrs: { SPD: 82, HND: 86 }, age: 25 },
+      { slot: "WR3", name: "Jordyn Tyson", pos: "WR", ovr: 83,
+        attrs: { SPD: 83, HND: 83 }, age: 22 },
+      { slot: "TE1", name: "Juwan Johnson", pos: "TE", ovr: 84,
+        attrs: { HND: 87, BLK: 81 }, age: 30 },
+      // O-Line: slots corrigidos (LT, LG, C, RG, RT — sem número) e o
+      // "pos" do David Edwards corrigido de "LG" pra "OL".
+      { slot: "LT", name: "Kelvin Banks Jr", pos: "OL", ovr: 84,
         attrs: { RBK: 85, PBK: 83 }, age: 22 },
-        { slot: "LG", name: "David Edwards", pos: "OL", ovr: 89,
+      { slot: "LG", name: "David Edwards", pos: "OL", ovr: 89,
         attrs: { RBK: 87, PBK: 91 }, age: 29 },
-        { slot: "C", name: "Erik McCoy", pos: "OL", ovr: 92,
+      { slot: "C", name: "Erik McCoy", pos: "OL", ovr: 92,
         attrs: { RBK: 92, PBK: 92 }, age: 29 },
-        { slot: "RG", name: "Cesar Ruiz", pos: "OL", ovr: 81,
+      { slot: "RG", name: "Cesar Ruiz", pos: "OL", ovr: 81,
         attrs: { RBK: 85, PBK: 83 }, age: 27 },
-        { slot: "RT", name: "Talaese Fuaga", pos: "OL", ovr: 85,
+      { slot: "RT", name: "Talaese Fuaga", pos: "OL", ovr: 85,
         attrs: { RBK: 85, PBK: 85 }, age: 24 },
-        { slot: "DE1", name: "Chase Young", pos: "DL", ovr: 92,
+      { slot: "DE1", name: "Chase Young", pos: "DL", ovr: 92,
         attrs: { RSH: 86, RUN: 98 }, age: 28 },
-        { slot: "DE2", name: "Carl Granderson", pos: "DL", ovr: 90,
+      { slot: "DE2", name: "Carl Granderson", pos: "DL", ovr: 90,
         attrs: { RSH: 86, RUN: 94 }, age: 29 },
-        { slot: "DT1", name: "Christen Miller", pos: "DL", ovr: 81,
+      { slot: "DT1", name: "Christen Miller", pos: "DL", ovr: 81,
         attrs: { RSH: 81, RUN: 81 }, age: 24 },
-        { slot: "DT2", name: "Bryan Bresee", pos: "DL", ovr: 80,
+      { slot: "DT2", name: "Bryan Bresee", pos: "DL", ovr: 80,
         attrs: { RSH: 84, RUN: 76 }, age: 26 },
-        { slot: "LB1", name: "Pete Werner", pos: "LB", ovr: 86,
+      { slot: "LB1", name: "Pete Werner", pos: "LB", ovr: 86,
         attrs: { COV: 85, RUN: 87 }, age: 27 },
-        { slot: "LB2", name: "Kaden Eliss", pos: "LB", ovr: 84,
+      { slot: "LB2", name: "Kaden Eliss", pos: "LB", ovr: 84,
         attrs: { COV: 86, RUN: 82 }, age: 30 },
-        { slot: "LB3", name: "Danny Stutsman", pos: "LB", ovr: 79,
+      { slot: "LB3", name: "Danny Stutsman", pos: "LB", ovr: 79,
         attrs: { COV: 79, RUN: 79 }, age: 25 },
-        { slot: "CB1", name: "Kool-Aid McKinstry", pos: "CB", ovr: 83,
+      { slot: "CB1", name: "Kool-Aid McKinstry", pos: "CB", ovr: 83,
         attrs: { COV: 82, SPD: 84 }, age: 23 },
-        { slot: "CB2", name: "Quincy Riley", pos: "CB", ovr: 80,
+      { slot: "CB2", name: "Quincy Riley", pos: "CB", ovr: 80,
         attrs: { COV: 81, SPD: 79 }, age: 26 },
-        { slot: "CB3", name: "Jonas Sanker", pos: "CB", ovr: 80,
+      { slot: "CB3", name: "Jonas Sanker", pos: "CB", ovr: 80,
         attrs: { COV: 82, SPD: 78 }, age: 23 },
-        { slot: "S1", name: "Justin Reid", pos: "S", ovr: 82,
+      { slot: "S1", name: "Justin Reid", pos: "S", ovr: 82,
         attrs: { COV: 85, TKL: 79 }, age: 31 },
-        { slot: "S2", name: "Julian Blackmon", pos: "S", ovr: 79,
+      { slot: "S2", name: "Julian Blackmon", pos: "S", ovr: 79,
         attrs: { COV: 79, TKL: 80 }, age: 25 },
-        { slot: "K1", name: "Daniel Carlson", pos: "K", ovr: 83,
+      { slot: "K1", name: "Daniel Carlson", pos: "K", ovr: 83,
         attrs: { POW: 82, ACC: 84 }, age: 31 },
-        { slot: "P1", name: "Ryan Wright", pos: "P", ovr: 76,
+      { slot: "P1", name: "Ryan Wright", pos: "P", ovr: 76,
         attrs: { POW: 77, ACC: 75 }, age: 26 },
     ],
   },
