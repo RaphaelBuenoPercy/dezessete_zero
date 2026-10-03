@@ -8,6 +8,8 @@ import { scoreOffer, rankOffers } from "../season/negotiation.js";
 import { ovrGrade, gradeColor, scoutingReport, fitForTeam, pickValueRead } from "../season/scouting.js";
 import { resolvePickOwner, teamPicks, pickTradeValue, pickLabel } from "../season/picks.js";
 import { STAT_CATEGORIES, RATIO_STATS, statRatioValue, formatStatValue, leagueLeaders } from "../season/stats.js";
+import { buildTierList } from "../season/powerRankings.js";
+import { GAME_RECORD_CATS, SEASON_RECORD_CATS } from "../season/records.js";
 import { Bar, Card, Btn, shadeColor, TeamLogo, PosPill, OvrBadge, AttrBars, DevTag, devLabel } from "../components/ui.jsx";
 
 // The four "front office" screens: Free Agency, Draft, Trade Center and
@@ -775,7 +777,118 @@ function DraftScreen({ career, myTeam, onDraftPick, onSimToMyPick, onOpenPlayer 
    STATS
    ============================================================ */
 
-function StatsScreen({ career, myTeam, onOpenPlayer }) {
+function PowerRankingsPanel({ career, myTeam, onOpenTeam }) {
+  const ranked = career.powerRankings?.length ? career.powerRankings : null;
+  if (!ranked) return <Card><div className="text-sm text-slate-400">As power rankings aparecem depois da primeira semana jogada.</div></Card>;
+  return (
+    <>
+      {career.hotTake && (
+        <Card className="mb-4 border-amber-400/30">
+          <div className="text-xs text-amber-400 font-semibold mb-1">🎙️ Hot take da semana</div>
+          <div className="text-sm text-slate-300 italic">{career.hotTake}</div>
+        </Card>
+      )}
+      <Card>
+        <div className="text-xs text-slate-400 mb-2">📊 Power Rankings — semana {career.week > 1 ? career.week - 1 : 1}</div>
+        <div className="space-y-1">
+          {ranked.map((t) => (
+            <button key={t.abbr} onClick={() => onOpenTeam(t.abbr)}
+              className={`w-full flex items-center gap-2 text-sm py-1.5 border-b border-white/5 last:border-0 text-left ${t.abbr === myTeam.abbr ? "text-white font-semibold" : "text-slate-300"}`}>
+              <span className="text-xs text-slate-500 w-5 tabular-nums">{t.rank}</span>
+              <TeamLogo abbr={t.abbr} size={22} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span>{t.abbr}</span>
+                  <span className="text-[10px] text-slate-500 tabular-nums">{t.wins}-{t.losses}{t.ties ? `-${t.ties}` : ""}</span>
+                  {t.delta > 0 && <span className="text-[10px] text-emerald-400 font-semibold">▲{t.delta}</span>}
+                  {t.delta < 0 && <span className="text-[10px] text-red-400 font-semibold">▼{Math.abs(t.delta)}</span>}
+                </div>
+                <div className="text-[10px] text-slate-500 truncate">{t.blurb}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </Card>
+    </>
+  );
+}
+
+const TIER_POSITIONS = ["QB", "RB", "WR", "TE", "OL", "DL", "LB", "CB", "S", "K", "P"];
+
+function TierListPanel({ career, myTeam, onOpenPlayer }) {
+  const [pos, setPos] = useState("QB");
+  const tiers = buildTierList(career.leagueTeams, pos);
+  return (
+    <>
+      <Card className="mb-3">
+        <div className="text-xs text-slate-400 mb-2">Posição</div>
+        <div className="flex flex-wrap gap-1.5">
+          {TIER_POSITIONS.map((p) => (
+            <button key={p} onClick={() => setPos(p)}
+              className={`text-[11px] px-2 py-1 rounded-md border ${pos === p ? "bg-white text-black border-white" : "border-white/15 text-slate-300"}`}>
+              {p}
+            </button>
+          ))}
+        </div>
+      </Card>
+      {!tiers.length && <Card><div className="text-sm text-slate-400">Sem estatísticas suficientes nessa posição ainda.</div></Card>}
+      {tiers.map((t) => (
+        <Card key={t.key} className="mb-3">
+          <div className="text-sm font-bold mb-2" style={{ color: t.color }}>{t.label}</div>
+          <div className="space-y-1">
+            {t.players.map(({ p, teamAbbr }) => (
+              <button key={p.id} onClick={() => onOpenPlayer(p.id, teamAbbr)}
+                className={`w-full flex items-center justify-between text-sm py-1 border-b border-white/5 last:border-0 text-left hover:text-sky-300 ${teamAbbr === myTeam.abbr ? "font-semibold text-white" : "text-slate-300"}`}>
+                <span className="flex items-center gap-2 min-w-0"><TeamLogo abbr={teamAbbr} size={16} /><span className="truncate">{p.name}</span></span>
+                <span className="text-[10px] text-slate-500 shrink-0 ml-2">{teamAbbr}</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      ))}
+    </>
+  );
+}
+
+
+function RecordsPanel({ career, onOpenPlayer }) {
+  const records = career.leagueRecords || { single_game: {}, single_season: {} };
+  const [scope, setScope] = useState("game");
+  const cats = scope === "game" ? GAME_RECORD_CATS : SEASON_RECORD_CATS;
+  const bucket = scope === "game" ? records.single_game : records.single_season;
+  return (
+    <>
+      <Card className="mb-3 !p-2">
+        <div className="flex gap-2">
+          <button onClick={() => setScope("game")} className={`flex-1 text-xs font-semibold py-1.5 rounded-md ${scope === "game" ? "bg-sky-500/20 text-sky-300 border border-sky-500/40" : "bg-white/5 text-slate-400 border border-transparent"}`}>Recordes de jogo</button>
+          <button onClick={() => setScope("season")} className={`flex-1 text-xs font-semibold py-1.5 rounded-md ${scope === "season" ? "bg-sky-500/20 text-sky-300 border border-sky-500/40" : "bg-white/5 text-slate-400 border border-transparent"}`}>Recordes de temporada</button>
+        </div>
+      </Card>
+      {cats.map(({ key, label }) => {
+        const r = bucket[key];
+        return (
+          <Card key={key} className="mb-3">
+            <div className="text-xs text-slate-400 mb-1.5">{label}</div>
+            {r ? (
+              <button onClick={() => onOpenPlayer(r.playerId, r.teamAbbr)} className="w-full flex items-center justify-between text-left hover:text-sky-300">
+                <span className="flex items-center gap-2"><TeamLogo abbr={r.teamAbbr} size={22} /><PosPill pos={r.pos} />{r.playerName}</span>
+                <div className="text-right">
+                  <div className="font-black text-lg tabular-nums">{r.value}</div>
+                  <div className="text-[10px] text-slate-500">{r.year}{r.week ? ` · ${typeof r.week === "number" ? `sem. ${r.week}` : r.week}` : ""}</div>
+                </div>
+              </button>
+            ) : (
+              <div className="text-sm text-slate-500">Ainda sem recorde registrado.</div>
+            )}
+          </Card>
+        );
+      })}
+    </>
+  );
+}
+
+function StatsScreen({ career, myTeam, onOpenPlayer, onOpenTeam }) {
+  const [tab, setTab] = useState("leaders");
   const [cat, setCat] = useState("passYards");
   const catDef = STAT_CATEGORIES.find((c) => c.key === cat);
   const leaders = leagueLeaders(career.leagueTeams, cat, 8);
@@ -796,6 +909,20 @@ function StatsScreen({ career, myTeam, onOpenPlayer }) {
       <h2 className="text-xl font-black mb-1">Estatísticas</h2>
       <p className="text-xs text-slate-500 mb-4">Acumulado da temporada {career.year}.</p>
 
+      <div className="flex gap-1.5 mb-4">
+        {[["leaders", "Líderes"], ["power", "Power Rankings"], ["tiers", "Tier Lists"], ["records", "Recordes"]].map(([k, l]) => (
+          <button key={k} onClick={() => setTab(k)}
+            className={`flex-1 text-xs font-semibold py-1.5 rounded-md border ${tab === k ? "bg-white text-black border-white" : "border-white/15 text-slate-400"}`}>
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {tab === "power" && <PowerRankingsPanel career={career} myTeam={myTeam} onOpenTeam={onOpenTeam} />}
+      {tab === "tiers" && <TierListPanel career={career} myTeam={myTeam} onOpenPlayer={onOpenPlayer} />}
+      {tab === "records" && <RecordsPanel career={career} onOpenPlayer={onOpenPlayer} />}
+
+      {tab === "leaders" && <>
       {awards && (
         <Card className="mb-4 border-amber-400/30">
           <div className="text-xs text-amber-400 font-semibold mb-2">🏆 Prêmios de {awards.year}</div>
@@ -872,6 +999,7 @@ function StatsScreen({ career, myTeam, onOpenPlayer }) {
           </div>
         ))}
       </Card>
+      </>}
     </div>
   );
 }

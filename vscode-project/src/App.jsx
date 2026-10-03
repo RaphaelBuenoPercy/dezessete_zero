@@ -13,6 +13,9 @@ import { retireAndRefreshLeague } from "./season/offseason.js";
 import { aiOffersWave, resolveMarket, submitUserOffer, withdrawUserOffer } from "./season/negotiation.js";
 import { pickForTeamAI, pickValueRead } from "./season/scouting.js";
 import { updateWeeklyMorale } from "./season/morale.js";
+import { buildWeeklyRecap } from "./season/weeklyRecap.js";
+import { teamScore, buildPowerRankings, rankingMap, hotTake, winProbability, computePowerRankings } from "./season/powerRankings.js";
+import { checkGameRecords, checkSeasonRecords } from "./season/records.js";
 import { extensionAsk, processAIContracts, releaseToMarket } from "./season/contracts.js";
 import { computeSeasonAwards, applyCareerRollover } from "./season/legacy.js";
 import { newCareerState, AI_TEND } from "./season/careerState.js";
@@ -158,6 +161,7 @@ export default function App() {
       }
 
       let myGame = null;
+      const weekRecordBreaks = [];
       round.forEach((g) => {
         if (g.home === c.teamAbbr || g.away === c.teamAbbr) { myGame = g; return; }
         const beforeH = snapshotRosterStats(c.leagueTeams[g.home].roster);
@@ -169,6 +173,8 @@ export default function App() {
           home: diffRosterStats(c.leagueTeams[g.home].roster, beforeH),
           away: diffRosterStats(c.leagueTeams[g.away].roster, beforeA),
         };
+        if (!c.leagueRecords) c.leagueRecords = { single_game: {}, single_season: {} };
+        weekRecordBreaks.push(...checkGameRecords(c.leagueRecords, g.boxScore, g.home, g.away, c.year, c.week));
       });
 
       if (myGame) {
@@ -178,13 +184,29 @@ export default function App() {
         };
         const beforeH = snapshotRosterStats(c.leagueTeams[myGame.home].roster);
         const beforeA = snapshotRosterStats(c.leagueTeams[myGame.away].roster);
+        // The media's pre-game read, using standings as they stand right now
+        // (before this game changes them) — tracked afterward so "beating
+        // the odds" means something over a season.
+        const myIsHome = myGame.home === c.teamAbbr;
+        const preHomeScore = teamScore(c.leagueTeams[myGame.home]), preAwayScore = teamScore(c.leagueTeams[myGame.away]);
+        const myWinProb = myIsHome ? winProbability(preHomeScore, preAwayScore) : 1 - winProbability(preHomeScore, preAwayScore);
         const { score, log, scoreTimeline, plays, injuries: gameInjuries } = simGameDetailed(myGame.home, myGame.away, c.leagueTeams, tendencies, rng);
         applyResult(c.leagueTeams, myGame.home, myGame.away, score[myGame.home], score[myGame.away]);
         myGame.homeScore = score[myGame.home]; myGame.awayScore = score[myGame.away];
+        {
+          const myWon = score[c.teamAbbr] > score[myGame.home === c.teamAbbr ? myGame.away : myGame.home];
+          const pr = c.predictionRecord || (c.predictionRecord = { correct: 0, wrong: 0, upsetWins: 0, games: 0 });
+          pr.games += 1;
+          const mediaPickedMe = myWinProb >= 0.5;
+          if (mediaPickedMe === myWon) pr.correct += 1; else pr.wrong += 1;
+          if (myWinProb < 0.4 && myWon) { pr.upsetWins += 1; c.news.push(`📊 A mídia dava só ${Math.round(myWinProb * 100)}% de chance — vocês provaram errado!`); }
+        }
         myGame.boxScore = {
           home: diffRosterStats(c.leagueTeams[myGame.home].roster, beforeH),
           away: diffRosterStats(c.leagueTeams[myGame.away].roster, beforeA),
         };
+        if (!c.leagueRecords) c.leagueRecords = { single_game: {}, single_season: {} };
+        weekRecordBreaks.push(...checkGameRecords(c.leagueRecords, myGame.boxScore, myGame.home, myGame.away, c.year, c.week));
         const oppAbbr = myGame.home === c.teamAbbr ? myGame.away : myGame.home;
         const won = score[c.teamAbbr] > score[oppAbbr];
         const myTeamMeta = c.leagueTeams[c.teamAbbr], oppTeamMeta = c.leagueTeams[oppAbbr];
@@ -252,6 +274,25 @@ export default function App() {
         c.hotSeatWarned = false;
       }
 
+      const prRng = mulberry32(seedFromString(c.id + "-powerrank-" + c.week));
+      c.powerRankings = buildPowerRankings(c.leagueTeams, c.powerRankingsPrev, prRng);
+      c.powerRankingsPrev = rankingMap(c.powerRankings);
+      c.hotTake = hotTake(c.powerRankings, prRng);
+
+      weekRecordBreaks.slice(0, 2).forEach((b) => {
+        c.news.push(`📖 Novo recorde! ${b.label}: ${b.playerName} (${b.teamAbbr}) com ${b.value}.`);
+      });
+
+      const recap = buildWeeklyRecap(c.leagueTeams, round);
+      if (recap) {
+        if (recap.upsets.length) {
+          const g = recap.upsets[0];
+          const winner = g.homeScore > g.awayScore ? g.home : g.away, loser = winner === g.home ? g.away : g.home;
+          c.news.push(`📰 Zebra da rodada: ${winner} surpreende e vence o ${loser}.`);
+        } else if (recap.potw) {
+          c.news.push(`📰 Destaque da rodada: ${recap.potw.name} (${recap.potw.teamAbbr}) — ${recap.potw.line}.`);
+        }
+      }
       c.week += 1;
       return c;
     });
@@ -311,6 +352,10 @@ export default function App() {
           home: diffRosterStats(c.leagueTeams[homeAbbr].roster, beforeH),
           away: diffRosterStats(c.leagueTeams[awayAbbr].roster, beforeA),
         };
+        if (!c.leagueRecords) c.leagueRecords = { single_game: {}, single_season: {} };
+        checkGameRecords(c.leagueRecords, m.boxScore, homeAbbr, awayAbbr, c.year, po.roundLabel).slice(0, 2).forEach((b) => {
+          c.news.push(`📖 Novo recorde (playoffs)! ${b.label}: ${b.playerName} (${b.teamAbbr}) com ${b.value}.`);
+        });
         const winnerAbbr = score[homeAbbr] >= score[awayAbbr] ? homeAbbr : awayAbbr;
         m.winner = winnerAbbr;
         return { winnerObj: winnerAbbr === m.a.abbr ? m.a : m.b, m };
@@ -387,6 +432,11 @@ export default function App() {
   function advanceToNextSeason() {
     setCareer((prev) => {
       const c = structuredClone(prev);
+
+      if (!c.leagueRecords) c.leagueRecords = { single_game: {}, single_season: {} };
+      checkSeasonRecords(c.leagueRecords, c.leagueTeams, c.year).forEach((b) => {
+        c.news.push(`📖 Recorde de temporada! ${b.label}: ${b.playerName} (${b.teamAbbr}) com ${b.value}.`);
+      });
 
       const awards = computeSeasonAwards(c.leagueTeams, c.year);
       const rolloverNews = applyCareerRollover(c.leagueTeams, awards);
@@ -741,7 +791,7 @@ export default function App() {
         {screen === "freeagency" && <FreeAgencyScreen career={career} myTeam={myTeam} onOffer={makeFreeAgentOffer} onOpenPlayer={openFreeAgent} onAdvanceMarket={advanceFreeAgencyMarket} />}
         {screen === "draft" && career.draftClass && <DraftScreen career={career} myTeam={myTeam} onDraftPick={draftPick} onSimToMyPick={simToMyPick} onOpenPlayer={openProspect} />}
         {screen === "trade" && <TradeScreen myTeam={myTeam} career={career} onTrade={proposeTrade} onOpenPlayer={openPlayer} />}
-        {screen === "stats" && <StatsScreen career={career} myTeam={myTeam} onOpenPlayer={openPlayer} />}
+        {screen === "stats" && <StatsScreen career={career} myTeam={myTeam} onOpenPlayer={openPlayer} onOpenTeam={openTeam} />}
         {screen === "teamDetail" && detail?.type === "team" && <TeamDetailScreen abbr={detail.abbr} career={career} myTeam={myTeam} onBack={closeDetail} onOpenPlayer={openPlayer} />}
         {screen === "playerDetail" && detail?.type === "player" && <PlayerDetailScreen playerId={detail.playerId} teamAbbr={detail.teamAbbr} career={career} onBack={closeDetail} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
         {screen === "playerDetail" && detail?.type === "freeagent" && <FreeAgentDetailScreen playerId={detail.playerId} career={career} myTeam={myTeam} onOffer={makeFreeAgentOffer} onWithdraw={withdrawFreeAgentOffer} onBack={closeDetail} />}

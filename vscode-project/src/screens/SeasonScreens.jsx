@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { clamp } from "../lib/rng.js";
 import { TEAM_META } from "../data/teams.js";
 import { rivalryTier } from "../season/rivalries.js";
+import { buildWeeklyRecap } from "../season/weeklyRecap.js";
 import { Card, Btn, TeamLogo, primaryStatLine } from "../components/ui.jsx";
 
 // Calendário/classificação, resultados rodada-a-rodada com box score,
@@ -234,6 +235,57 @@ function roundGames(round) {
   return [...(round.afc || []), ...(round.nfc || [])].map(matchToGame).filter(Boolean);
 }
 
+
+// Around-the-league digest for one week: the best individual performance,
+// which favorites got upset, and a few other stat lines worth knowing —
+// built entirely from box scores every game already has, watched or not.
+function WeeklyRecapCard({ recap, onOpenTeam, onOpenPlayer }) {
+  if (!recap) return null;
+  return (
+    <Card className="mb-4">
+      <div className="text-xs text-slate-400 mb-2">📰 Resumo da rodada · {recap.totalGames} jogo(s)</div>
+      {recap.potw && (
+        <button onClick={() => onOpenPlayer?.(recap.potw.id, recap.potw.teamAbbr)} className="w-full flex items-center justify-between text-left mb-2 pb-2 border-b border-white/5 hover:text-sky-300">
+          <div className="flex items-center gap-2 min-w-0">
+            <TeamLogo abbr={recap.potw.teamAbbr} size={20} />
+            <div className="min-w-0">
+              <div className="text-[10px] text-amber-400 font-semibold">⭐ Destaque da rodada</div>
+              <div className="text-sm truncate">{recap.potw.name} <span className="text-slate-500">({recap.potw.pos})</span></div>
+            </div>
+          </div>
+          <span className="text-xs text-slate-400 shrink-0 ml-2">{recap.potw.line}</span>
+        </button>
+      )}
+      {recap.upsets.length > 0 && (
+        <div className="mb-2 pb-2 border-b border-white/5">
+          <div className="text-[10px] text-red-400 font-semibold mb-1">😱 Zebras da rodada</div>
+          {recap.upsets.map((g, i) => {
+            const winner = g.homeScore > g.awayScore ? g.home : g.away;
+            return (
+              <button key={i} onClick={() => onOpenTeam(winner)} className="w-full flex items-center justify-between text-xs py-1 hover:text-sky-300">
+                <span className="flex items-center gap-1.5"><TeamLogo abbr={g.away} size={16} />{g.away} {g.awayScore}-{g.homeScore} {g.home}<TeamLogo abbr={g.home} size={16} /></span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {recap.standouts.length > 0 && (
+        <div>
+          <div className="text-[10px] text-slate-500 font-semibold mb-1">Outros destaques</div>
+          <div className="space-y-1">
+            {recap.standouts.slice(0, 5).map((s, i) => (
+              <button key={i} onClick={() => onOpenPlayer?.(s.id, s.teamAbbr)} className="w-full flex items-center justify-between text-xs py-0.5 hover:text-sky-300 text-left">
+                <span className="flex items-center gap-1.5 truncate min-w-0"><TeamLogo abbr={s.teamAbbr} size={14} /><span className="truncate">{s.name}</span></span>
+                <span className="text-slate-500 shrink-0 ml-2">{s.line}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 function ResultsScreen({ career, onOpenTeam, onOpenPlayer }) {
   const [tab, setTab] = useState("season");
   const maxWeek = Math.min(17, Math.max(1, career.phase === "season" ? career.week - 1 : 17));
@@ -271,6 +323,7 @@ function ResultsScreen({ career, onOpenTeam, onOpenPlayer }) {
             <button disabled={week >= maxWeek} onClick={() => { setWeek((w) => w + 1); setOpenIdx(null); }} className="px-2 py-1 rounded-md bg-white/5 disabled:opacity-30">▶</button>
           </div>
           {!seasonGames.length && <Card><div className="text-sm text-slate-400">Nenhum jogo simulado ainda nesta semana.</div></Card>}
+          <WeeklyRecapCard recap={buildWeeklyRecap(career.leagueTeams, seasonGames)} onOpenTeam={onOpenTeam} onOpenPlayer={onOpenPlayer} />
           <div className="space-y-2">
             {seasonGames.map((g, i) => (
               <GameResultCard key={i} g={g} open={openIdx === i} onToggle={() => setOpenIdx(openIdx === i ? null : i)} onOpenTeam={onOpenTeam} onOpenPlayer={onOpenPlayer} />

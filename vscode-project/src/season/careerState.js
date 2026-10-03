@@ -23,6 +23,9 @@ function newCareerState(teamAbbr, coachName) {
     tradeHistory: [],
     hallOfFame: [], lastSeasonAwards: null, hotSeatWarned: false,
     rivalries: {}, nemeses: [],
+    powerRankings: [], powerRankingsPrev: null, hotTake: null,
+    predictionRecord: { correct: 0, wrong: 0, upsetWins: 0, games: 0 },
+    leagueRecords: { single_game: {}, single_season: {} },
     news: [`Bem-vindo, técnico ${coachName}! Você assume o comando do ${meta.city} ${meta.name} para a temporada 2026.`],
     playoffs: null,
   };

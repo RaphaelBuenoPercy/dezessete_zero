@@ -4,6 +4,8 @@ import { SUB_ATTRS } from "../data/rosterSlots.js";
 import { capUsed } from "../engine/playerGen.js";
 import { Bar, Card, TeamLogo, PosPill, primaryStatLine, devLabel } from "../components/ui.jsx";
 import { moraleLabel } from "../season/morale.js";
+import { rivalryTier, headToHeadLine } from "../season/rivalries.js";
+import { teamIdentity } from "../season/teamIdentity.js";
 
 // Full-page detail views for a team and for a player already on a roster.
 
@@ -11,6 +13,7 @@ function TeamDetailScreen({ abbr, career, myTeam, onBack, onOpenPlayer }) {
   const team = career.leagueTeams[abbr];
   if (!team) return <div className="pb-24"><button onClick={onBack} className="text-sm text-slate-400 mb-3">← Voltar</button><Card>Time não encontrado.</Card></div>;
   const isMine = abbr === myTeam.abbr;
+  const identity = teamIdentity(abbr, team.city);
 
   const upcoming = [];
   career.schedule.forEach((wk, wi) => {
@@ -43,6 +46,10 @@ function TeamDetailScreen({ abbr, career, myTeam, onBack, onOpenPlayer }) {
     return margin > (best?.margin ?? -999) ? { margin, my, opp, oppAbbr } : best;
   }, null);
   const rivals = Object.values(career.leagueTeams).filter((t) => t.abbr !== abbr && t.conf === team.conf && t.div === team.div);
+  const rivalRecord = career.rivalries?.[abbr];
+  const isDivisionRival = myTeam.conf === team.conf && myTeam.div === team.div;
+  const rivalTierRead = rivalRecord ? rivalryTier(rivalRecord, isDivisionRival) : null;
+  const h2hLine = rivalRecord ? headToHeadLine(rivalRecord, myTeam.abbr) : null;
   const topPlayers = [...team.roster].sort((a, b) => b.ovr - a.ovr).slice(0, 6);
   const capLeft = (CAP - capUsed(team.roster)).toFixed(1);
 
@@ -53,6 +60,7 @@ function TeamDetailScreen({ abbr, career, myTeam, onBack, onOpenPlayer }) {
         <TeamLogo abbr={abbr} size={56} />
         <div>
           <div className="text-2xl font-black leading-tight">{team.city} {team.name}</div>
+          <div className="text-xs text-sky-400 italic">{identity.fanNickname}</div>
           <div className="text-xs text-slate-500">{team.conf} {team.div} · {team.wins}-{team.losses}{team.ties ? `-${team.ties}` : ""}{isMine ? " · Seu time" : ""}</div>
         </div>
       </div>
@@ -105,9 +113,21 @@ function TeamDetailScreen({ abbr, career, myTeam, onBack, onOpenPlayer }) {
           </button>
         ))}
       </Card>
+      {!isMine && rivalRecord && (
+        <Card className="mb-3">
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-sm font-semibold">🔥 Confronto direto</div>
+            {rivalTierRead && <span className="text-xs font-semibold" style={{ color: rivalTierRead.color }}>{rivalTierRead.label}</span>}
+          </div>
+          <div className="text-sm text-slate-300">{rivalRecord.wins}-{rivalRecord.losses}{rivalRecord.ties ? `-${rivalRecord.ties}` : ""} <span className="text-slate-500 text-xs">({rivalRecord.meetings} confronto(s){rivalRecord.playoffMeetings > 0 ? `, ${rivalRecord.playoffMeetings} nos playoffs` : ""})</span></div>
+          {h2hLine && <div className="text-xs text-slate-500 mt-1">{h2hLine}.</div>}
+        </Card>
+      )}
       <Card>
         <div className="text-sm font-semibold mb-2">Curiosidades</div>
         <ul className="text-xs text-slate-400 space-y-1.5 list-disc list-inside">
+          <li>Mascote: <span className="text-slate-200">{team.city} {identity.mascot}</span> · Estádio: <span className="text-slate-200">{identity.stadiumName}</span></li>
+          <li>Grito de guerra da torcida: <span className="text-slate-200 italic">"{identity.chant}"</span></li>
           <li>Esquema defensivo: <span className="text-slate-200">{team.scheme}</span></li>
           <li>Cap disponível: <span className="text-slate-200">${capLeft}M</span> de ${CAP}M</li>
           <li>Confiança do dono: <span className="text-slate-200">{team.ownerConfidence}/100</span> · Torcida: <span className="text-slate-200">{team.fanSupport}/100</span></li>
@@ -122,7 +142,7 @@ function TeamDetailScreen({ abbr, career, myTeam, onBack, onOpenPlayer }) {
 /* ============================================================
    PLAYER DETAIL PAGE
    ============================================================ */
-function PlayerDetailScreen({ playerId, teamAbbr, career, onBack, onOpenTeam }) {
+function PlayerDetailScreen({ playerId, teamAbbr, career, onBack, onOpenTeam, onOpenPlayer }) {
   const team = career.leagueTeams[teamAbbr];
   const player = team?.roster.find((p) => p.id === playerId);
   if (!player) {
@@ -136,6 +156,9 @@ function PlayerDetailScreen({ playerId, teamAbbr, career, onBack, onOpenTeam }) 
   const subAttrs = SUB_ATTRS[player.pos] || [];
   const line = primaryStatLine(player);
   const careerLine = primaryStatLine({ pos: player.pos, seasonStats: player.careerStats });
+  const classmate = player.rookieYear ? Object.values(career.leagueTeams)
+    .flatMap((t) => t.roster.filter((p) => p.rookieYear === player.rookieYear && p.pos === player.pos && p.id !== player.id).map((p) => ({ p, teamAbbr: t.abbr })))
+    .sort((a, b) => b.p.ovr - a.p.ovr)[0] : null;
   const upcoming = [];
   career.schedule.forEach((wk, wi) => {
     const g = wk.find((g) => g.home === teamAbbr || g.away === teamAbbr);
@@ -149,6 +172,7 @@ function PlayerDetailScreen({ playerId, teamAbbr, career, onBack, onOpenTeam }) 
         <TeamLogo abbr={teamAbbr} size={48} />
         <div>
           <div className="text-2xl font-black leading-tight">{player.name}</div>
+          {player.nickname && <div className="text-xs text-sky-400 font-semibold italic mb-0.5">"{player.nickname}"</div>}
           <button onClick={() => onOpenTeam(teamAbbr)} className="text-xs text-slate-500 hover:text-slate-300 hover:underline">{team.city} {team.name}</button>
         </div>
       </div>
@@ -219,6 +243,12 @@ function PlayerDetailScreen({ playerId, teamAbbr, career, onBack, onOpenTeam }) 
           {player.injuredWeeks > 0 && <li className="text-red-400 font-semibold">Lesionado — {player.injuredWeeks} semana(s) restantes</li>}
           {player.injuryHistory?.length > 0 && (
             <li>Histórico de lesões: <span className="text-slate-200">{player.injuryHistory.length} na carreira</span>{player.injuryHistory.length >= 4 && <span className="text-amber-400 font-semibold"> · propenso a lesões</span>}</li>
+          )}
+          {classmate && (
+            <li>
+              Colega de classe ({player.rookieYear}): <button onClick={() => (onOpenPlayer ? onOpenPlayer(classmate.p.id, classmate.teamAbbr) : onOpenTeam(classmate.teamAbbr))} className="text-slate-200 hover:text-sky-300 hover:underline">{classmate.p.name}</button>
+              <span className="text-slate-500"> ({classmate.p.ovr} OVR{classmate.p.ovr !== player.ovr ? `, ${classmate.p.ovr > player.ovr ? "à frente" : "atrás"}` : ""})</span>
+            </li>
           )}
         </ul>
       </Card>

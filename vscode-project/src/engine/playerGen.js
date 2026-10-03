@@ -3,6 +3,7 @@ import { rosterSlotsFor, SUB_ATTRS } from "../data/rosterSlots.js";
 import { TEAM_META, CAP } from "../data/teams.js";
 import { makeName } from "../data/names.js";
 import { CUSTOM_ROSTERS } from "../customRosters.js";
+import { generateNickname } from "./nicknames.js";
 
 // Procedural player/roster/league generation, plus the free-agency and
 // draft pools drawn from the same generator (see makePlayer).
@@ -33,6 +34,7 @@ function makePlayer(rng, pos, tier, name) {
     dev: tier === "star" || tier === "bench" ? (age < 26 ? "rising" : age > 30 ? "declining" : "steady") : "steady",
     injuredWeeks: 0, seasonStats: {}, careerStats: {},
     morale: 65, accolades: [], seasonsPlayed: 0, injuryHistory: [], rookieYear: null,
+    nickname: generateNickname(rng, pos, attrs, [a1, a2]),
   };
 }
 
@@ -58,6 +60,7 @@ function makeCustomPlayer(rng, slot, cp) {
     dev: cp.dev || "steady",
     injuredWeeks: 0, seasonStats: {}, careerStats: {}, slot: slot.key,
     morale: 65, accolades: [], seasonsPlayed: 0, injuryHistory: [], rookieYear: null,
+    nickname: cp.nickname ?? generateNickname(rng, pos, attrs, [a1, a2]),
   };
 }
 

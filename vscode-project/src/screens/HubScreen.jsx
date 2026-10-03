@@ -4,6 +4,7 @@ import { capUsed } from "../engine/playerGen.js";
 import { moraleLabel } from "../season/morale.js";
 import { rivalryTier, headToHeadLine } from "../season/rivalries.js";
 import { isExpiring } from "../season/contracts.js";
+import { teamScore, winProbability } from "../season/powerRankings.js";
 import { Bar, Card, Btn, TeamLogo } from "../components/ui.jsx";
 
 // The main dashboard shown between weeks: next game, standings blurb,
@@ -21,6 +22,9 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onOpenTe
   const rivalRecord = oppAbbr ? career.rivalries?.[oppAbbr] : null;
   const nextRivalry = oppAbbr ? rivalryTier(rivalRecord, isDivision) : null;
   const nextH2H = rivalRecord ? headToHeadLine(rivalRecord, myTeam.abbr) : null;
+  const myWinProb = nextGame && oppTeamFull
+    ? Math.round((isHome ? winProbability(teamScore(myTeam), teamScore(oppTeamFull)) : 1 - winProbability(teamScore(oppTeamFull), teamScore(myTeam))) * 100)
+    : null;
   const gamePending = !!(career.lastGame && (career.gameRevealCount ?? 0) < career.lastGame.log.length);
   const expiringCount = myTeam.roster.filter(isExpiring).length;
   const avgMorale = Math.round(myTeam.roster.reduce((s, p) => s + (p.morale ?? 65), 0) / myTeam.roster.length);
@@ -74,6 +78,11 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onOpenTe
                   {nextRivalry && (
                     <div className="text-xs font-semibold mt-1" style={{ color: nextRivalry.color }}>
                       🔥 {nextRivalry.label}{nextH2H ? ` · ${nextH2H}` : ""}
+                    </div>
+                  )}
+                  {myWinProb !== null && (
+                    <div className="text-[11px] text-slate-500 mt-1">
+                      📊 Mídia dá <span className={myWinProb >= 50 ? "text-emerald-400 font-semibold" : "text-amber-400 font-semibold"}>{myWinProb}%</span> de chance pra vocês
                     </div>
                   )}
                 </div>
