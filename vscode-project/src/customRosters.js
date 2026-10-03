@@ -65,8 +65,10 @@ export const CUSTOM_ROSTERS = {
     players: [
       { slot: "QB1", name: "Tyler Shough", pos: "QB", ovr: 91,
         attrs: { ARM: 90, ACC: 92 }, age: 26 },
-      { slot: "RB2", name: "Travis Etienne", pos: "RB", ovr: 85,
+      { slot: "RB1", name: "Travis Etienne", pos: "RB", ovr: 85,
         attrs: { SPD: 88, POW: 82 }, age: 27 },
+      { slot: "RB2", name: "Alvin Kamara", pos: "RB", ovr: 84,
+        attrs: { SPD: 85, POW: 83 }, age: 27 },
       { slot: "WR1", name: "Chris Olave", pos: "WR", ovr: 93,
         attrs: { SPD: 95, HND: 91 }, age: 25 },
       { slot: "WR2", name: "DeVaughn Vele", pos: "WR", ovr: 84,
