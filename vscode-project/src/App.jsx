@@ -24,7 +24,7 @@ import { MenuScreen, NewCareerScreen, FiredScreen } from "./screens/MenuScreens.
 import { TeamDetailScreen, PlayerDetailScreen } from "./screens/TeamAndPlayer.jsx";
 import { HubScreen } from "./screens/HubScreen.jsx";
 import { RosterScreen, DepthChartScreen, TacticsScreen, ContractsScreen } from "./screens/TeamManagementScreens.jsx";
-import { ScheduleScreen, ResultsScreen, GameScreen, PressModal } from "./screens/SeasonScreens.jsx";
+import { ScheduleScreen, ResultsScreen, GameScreen, PressModal, HonorsScreen } from "./screens/SeasonScreens.jsx";
 import { FreeAgencyScreen, FreeAgentDetailScreen, DraftScreen, ProspectDetailScreen, StatsScreen, TradeScreen } from "./screens/MarketScreens.jsx";
 
 // Current win/loss/tie streak for `abbr`, most recent game first — shared
@@ -441,14 +441,16 @@ export default function App() {
       const awards = computeSeasonAwards(c.leagueTeams, c.year);
       const rolloverNews = applyCareerRollover(c.leagueTeams, awards);
       c.news.push(...rolloverNews);
+      const awardCard = (a) => a && { playerId: a.p.id, name: a.p.name, pos: a.p.pos, ovr: a.p.ovr, teamAbbr: a.t.abbr };
       c.lastSeasonAwards = {
         year: awards.year,
-        mvp: awards.mvp && { name: awards.mvp.p.name, pos: awards.mvp.p.pos, teamAbbr: awards.mvp.t.abbr },
-        opoy: awards.opoy && { name: awards.opoy.p.name, pos: awards.opoy.p.pos, teamAbbr: awards.opoy.t.abbr },
-        dpoy: awards.dpoy && { name: awards.dpoy.p.name, pos: awards.dpoy.p.pos, teamAbbr: awards.dpoy.t.abbr },
-        oroy: awards.oroy && { name: awards.oroy.p.name, pos: awards.oroy.p.pos, teamAbbr: awards.oroy.t.abbr },
-        droy: awards.droy && { name: awards.droy.p.name, pos: awards.droy.p.pos, teamAbbr: awards.droy.t.abbr },
+        mvp: awardCard(awards.mvp),
+        opoy: awardCard(awards.opoy),
+        dpoy: awardCard(awards.dpoy),
+        oroy: awardCard(awards.oroy),
+        droy: awardCard(awards.droy),
         coachOfYear: awards.coachOfYear && { teamAbbr: awards.coachOfYear.abbr, wins: awards.coachOfYear.wins, losses: awards.coachOfYear.losses },
+        allPro: Object.fromEntries(Object.entries(awards.allPro).map(([pos, a]) => [pos, awardCard(a)])),
       };
       // A little recognition where it's due: the front office notices when
       // your own team produces hardware.
@@ -783,6 +785,7 @@ export default function App() {
         {screen === "hub" && <HubScreen career={career} myTeam={myTeam} go={go} onPlayWeek={onHubAction} onSimPlayoffRound={onHubAction} onOpenTeam={openTeam} />}
         {screen === "roster" && <RosterScreen myTeam={myTeam} onOpenPlayer={(id) => openPlayer(id, myTeam.abbr)} />}
         {screen === "depth" && <DepthChartScreen myTeam={myTeam} onSwap={swapSlot} onAutoSort={autoSortDepthChart} />}
+        {screen === "honors" && <HonorsScreen career={career} onBack={() => go("hub")} onOpenPlayer={openPlayer} />}
         {screen === "contracts" && <ContractsScreen myTeam={myTeam} onExtend={extendContract} onRelease={releaseExpiring} onBack={() => go("hub")} />}
         {screen === "tactics" && <TacticsScreen myTeam={myTeam} tendencies={career.tendencies} onChange={(t) => setCareer((p) => ({ ...p, tendencies: t }))} />}
         {screen === "schedule" && <ScheduleScreen career={career} myTeam={myTeam} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}

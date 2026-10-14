@@ -133,7 +133,7 @@ function primaryStatLine(p) {
     const ypc = s.rushAttempts ? (s.rushYards / s.rushAttempts).toFixed(1) : "0.0";
     return `${s.rushYards} jds, ${ypc} ypc, ${s.rushTD || 0} TD`;
   }
-  if ((p.pos === "WR" || p.pos === "TE") && s.receivingYards) return `${s.receptions || 0} rec, ${s.receivingYards} jds, ${s.receivingTD || 0} TD`;
+  if ((p.pos === "WR" || p.pos === "TE") && s.receivingYards) return `${s.targets || s.receptions || 0} alvos, ${s.receptions || 0} rec, ${s.receivingYards} jds, ${s.receivingTD || 0} TD`;
   if ((p.pos === "DL" || p.pos === "LB") && (s.tackles || s.sacks || s.qbHits || s.qbHurries)) return `${s.tackles || 0} tackles, ${s.sacks || 0} sacks${s.tacklesForLoss ? `, ${s.tacklesForLoss} TFL` : ""}, ${s.qbHits || 0} QB hits`;
   if ((p.pos === "CB" || p.pos === "S") && (s.tackles || s.interceptions || s.passesDefended)) return `${s.tackles || 0} tackles, ${s.interceptions || 0} INT, ${s.passesDefended || 0} PD`;
   if (p.pos === "OL" && (s.pressuresAllowed || s.runBlockSnaps)) {

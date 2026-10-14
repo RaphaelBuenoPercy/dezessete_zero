@@ -3,7 +3,7 @@ import { clamp } from "../lib/rng.js";
 import { TEAM_META } from "../data/teams.js";
 import { rivalryTier } from "../season/rivalries.js";
 import { buildWeeklyRecap } from "../season/weeklyRecap.js";
-import { Card, Btn, TeamLogo, primaryStatLine } from "../components/ui.jsx";
+import { Card, Btn, TeamLogo, OvrBadge, PosPill, primaryStatLine } from "../components/ui.jsx";
 
 // Calendário/classificação, resultados rodada-a-rodada com box score,
 // a tela de jogo ao vivo (com o minicampo) e o modal de coletiva.
@@ -577,6 +577,89 @@ function GameScreen({ career, myTeam, go, onAdvance, onSkipToHighlight, onSimAll
   );
 }
 
+// The full award-ceremony presentation for a season: MVP spotlight, the
+// other major awards, Coach of the Year, and the full All-Pro team. The
+// compact card on the Hub links here for the whole show.
+function HonorsScreen({ career, onBack, onOpenPlayer }) {
+  const awards = career.lastSeasonAwards;
+  if (!awards) {
+    return (
+      <div className="pb-24">
+        <button onClick={onBack} className="text-sm text-slate-400 mb-3">← Voltar</button>
+        <Card><div className="text-sm text-slate-400">Nenhuma cerimônia registrada ainda — ela aparece ao fim da primeira temporada.</div></Card>
+      </div>
+    );
+  }
+  const SECONDARY = [
+    ["⭐ Melhor Ataque", awards.opoy, "#38bdf8"],
+    ["🛡️ Melhor Defesa", awards.dpoy, "#f87171"],
+    ["🌟 Novato Ofensivo", awards.oroy, "#4ade80"],
+    ["🌟 Novato Defensivo", awards.droy, "#a78bfa"],
+  ];
+  const allProEntries = Object.entries(awards.allPro || {}).filter(([, a]) => a);
+
+  return (
+    <div className="pb-24">
+      <button onClick={onBack} className="text-sm text-slate-400 mb-3">← Voltar</button>
+      <div className="text-center mb-5">
+        <div className="text-3xl mb-1">🏆</div>
+        <h2 className="text-2xl font-black">NFL Honors {awards.year}</h2>
+        <p className="text-xs text-slate-500">A cerimônia de premiação da temporada</p>
+      </div>
+
+      {awards.mvp && (
+        <Card className="mb-4 text-center border-amber-400/40">
+          <div className="text-xs text-amber-400 font-bold uppercase tracking-wide mb-3">Jogador Mais Valioso</div>
+          <button onClick={() => onOpenPlayer(awards.mvp.playerId, awards.mvp.teamAbbr)} className="inline-flex flex-col items-center gap-2">
+            <OvrBadge ovr={awards.mvp.ovr} size={64} />
+            <div className="text-xl font-black">{awards.mvp.name}</div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400"><TeamLogo abbr={awards.mvp.teamAbbr} size={18} />{awards.mvp.teamAbbr} · {awards.mvp.pos}</div>
+          </button>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        {SECONDARY.map(([label, a, color]) => a && (
+          <Card key={label} className="text-center">
+            <div className="text-[10px] font-bold mb-2" style={{ color }}>{label}</div>
+            <button onClick={() => onOpenPlayer(a.playerId, a.teamAbbr)} className="flex flex-col items-center gap-1.5 w-full">
+              <OvrBadge ovr={a.ovr} size={44} />
+              <div className="text-sm font-bold truncate max-w-full">{a.name}</div>
+              <div className="flex items-center gap-1 text-[10px] text-slate-500"><TeamLogo abbr={a.teamAbbr} size={14} />{a.teamAbbr}</div>
+            </button>
+          </Card>
+        ))}
+      </div>
+
+      {awards.coachOfYear && (
+        <Card className="mb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[10px] text-slate-400 font-bold uppercase">📋 Técnico do Ano</div>
+              <div className="text-sm font-bold mt-1">{awards.coachOfYear.teamAbbr} ({awards.coachOfYear.wins}-{awards.coachOfYear.losses})</div>
+            </div>
+            <TeamLogo abbr={awards.coachOfYear.teamAbbr} size={32} />
+          </div>
+        </Card>
+      )}
+
+      {allProEntries.length > 0 && (
+        <Card>
+          <div className="text-xs text-slate-400 font-bold mb-2">All-Pro Team {awards.year}</div>
+          <div className="space-y-1">
+            {allProEntries.map(([pos, a]) => (
+              <button key={pos} onClick={() => onOpenPlayer(a.playerId, a.teamAbbr)} className="w-full flex items-center justify-between text-sm py-1 border-b border-white/5 last:border-0 hover:text-sky-300 text-left">
+                <span className="flex items-center gap-2"><PosPill pos={pos} />{a.name}</span>
+                <span className="flex items-center gap-1.5 text-xs text-slate-500"><TeamLogo abbr={a.teamAbbr} size={16} />{a.ovr} OVR</span>
+              </button>
+            ))}
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 function PressModal({ event, onChoose }) {
   if (!event) return null;
   return (
@@ -607,4 +690,4 @@ function PressModal({ event, onChoose }) {
 // isn't on any team yet: no games/team info, just the scouting profile
 // and a big sign button.
 
-export { ScheduleScreen, ResultsScreen, GameScreen, PressModal };
+export { ScheduleScreen, ResultsScreen, GameScreen, PressModal, HonorsScreen };

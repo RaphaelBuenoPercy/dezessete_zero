@@ -6,8 +6,8 @@ import { capUsed, playerValue } from "../engine/playerGen.js";
 import { scoreTeamForFreeAgent, teamNeeds } from "../season/freeAgencyAI.js";
 import { scoreOffer, rankOffers } from "../season/negotiation.js";
 import { ovrGrade, gradeColor, scoutingReport, fitForTeam, pickValueRead } from "../season/scouting.js";
-import { resolvePickOwner, teamPicks, pickTradeValue, pickLabel } from "../season/picks.js";
-import { STAT_CATEGORIES, RATIO_STATS, statRatioValue, formatStatValue, leagueLeaders } from "../season/stats.js";
+import { resolvePickOwner, teamPicks, pickTradeValue, pickProjectionLabel, pickLabel } from "../season/picks.js";
+import { STAT_CATEGORIES, RATIO_STATS, gamesPlayedThisSeason, ratioMinimum, statRatioValue, formatStatValue, leagueLeaders } from "../season/stats.js";
 import { buildTierList } from "../season/powerRankings.js";
 import { GAME_RECORD_CATS, SEASON_RECORD_CATS } from "../season/records.js";
 import { Bar, Card, Btn, shadeColor, TeamLogo, PosPill, OvrBadge, AttrBars, DevTag, devLabel } from "../components/ui.jsx";
@@ -891,12 +891,13 @@ function StatsScreen({ career, myTeam, onOpenPlayer, onOpenTeam }) {
   const [tab, setTab] = useState("leaders");
   const [cat, setCat] = useState("passYards");
   const catDef = STAT_CATEGORIES.find((c) => c.key === cat);
-  const leaders = leagueLeaders(career.leagueTeams, cat, 8);
+  const gamesPlayed = gamesPlayedThisSeason(career);
+  const leaders = leagueLeaders(career.leagueTeams, cat, 8, gamesPlayed);
   const myLeaders = STAT_CATEGORIES.map((c) => {
     const ratio = RATIO_STATS[c.key];
     let top = null, topVal = null;
     myTeam.roster.forEach((p) => {
-      const v = ratio ? statRatioValue(p, c.key) : (p.seasonStats?.[c.key] || null);
+      const v = ratio ? statRatioValue(p, c.key, gamesPlayed) : (p.seasonStats?.[c.key] || null);
       if (v !== null && v !== undefined && (topVal === null || v > topVal)) { topVal = v; top = p; }
     });
     return { c, top, topVal };
@@ -985,8 +986,18 @@ function StatsScreen({ career, myTeam, onOpenPlayer, onOpenTeam }) {
       </Card>
 
       <Card>
-        <div className="text-xs text-slate-400 mb-2">Líderes da liga — {catDef.label}</div>
-        {leaders.length === 0 && <div className="text-sm text-slate-500">Sem dados ainda.</div>}
+        <div className="text-xs text-slate-400 mb-1">Líderes da liga — {catDef.label}</div>
+        {RATIO_STATS[cat] && (
+          <div className="text-[11px] text-slate-500 mb-2">
+            Mínimo pra aparecer: {ratioMinimum(cat, gamesPlayed)} {RATIO_STATS[cat].unit}
+            {gamesPlayed < 17 ? ` (sobe a cada semana · ${gamesPlayed} jogo(s) disputado(s))` : ""}
+          </div>
+        )}
+        {leaders.length === 0 && (
+          <div className="text-sm text-slate-500">
+            {RATIO_STATS[cat] ? `Ninguém atingiu o mínimo de ${ratioMinimum(cat, gamesPlayed)} ${RATIO_STATS[cat].unit} ainda.` : "Sem dados ainda."}
+          </div>
+        )}
         {leaders.map((row, i) => (
           <div key={row.player.id} className={`flex items-center justify-between py-1.5 border-b border-white/5 last:border-0 ${row.teamAbbr === myTeam.abbr ? "text-white font-semibold" : "text-slate-300"}`}>
             <div className="flex items-center gap-2 min-w-0">
@@ -1002,6 +1013,12 @@ function StatsScreen({ career, myTeam, onOpenPlayer, onOpenTeam }) {
       </>}
     </div>
   );
+}
+
+function winPctOf(team) {
+  if (!team) return 0.5;
+  const played = team.wins + team.losses + team.ties;
+  return played ? (team.wins + team.ties * 0.5) / played : 0.5;
 }
 
 // A single toggleable row in an asset picker — a player or a future pick,
@@ -1020,7 +1037,7 @@ function AssetToggleRow({ label, sub, value, selected, onClick }) {
 
 // One side of the trade sheet: a team's roster and tradeable picks, tabbed,
 // each entry toggling in/out of the offer.
-function TradeSide({ title, teamAbbr, roster, picks, currentYear, selectedPlayerIds, selectedPickIds, onTogglePlayer, onTogglePick }) {
+function TradeSide({ title, teamAbbr, roster, picks, currentYear, leagueTeams, selectedPlayerIds, selectedPickIds, onTogglePlayer, onTogglePick }) {
   const [tab, setTab] = useState("players");
   return (
     <Card>
@@ -1035,10 +1052,15 @@ function TradeSide({ title, teamAbbr, roster, picks, currentYear, selectedPlayer
           <AssetToggleRow key={p.id} label={`${p.pos} ${p.name}`} sub={`${p.ovr} OVR · idade ${p.age}`}
             value={playerValue(p)} selected={selectedPlayerIds.includes(p.id)} onClick={() => onTogglePlayer(p)} />
         ))}
-        {tab === "picks" && picks.map((pk) => (
-          <AssetToggleRow key={pk.id} label={pickLabel(pk)} sub={pk.originalAbbr !== teamAbbr ? `via ${pk.originalAbbr}` : null}
-            value={pickTradeValue(pk.round, pk.year, currentYear)} selected={selectedPickIds.includes(pk.id)} onClick={() => onTogglePick(pk)} />
-        ))}
+        {tab === "picks" && picks.map((pk) => {
+          const originalWinPct = winPctOf(leagueTeams[pk.originalAbbr]);
+          const proj = pickProjectionLabel(originalWinPct);
+          const sub = `${pk.originalAbbr !== teamAbbr ? `via ${pk.originalAbbr} · ` : ""}projeção: ${proj.label}`;
+          return (
+            <AssetToggleRow key={pk.id} label={pickLabel(pk)} sub={sub}
+              value={pickTradeValue(pk.round, pk.year, currentYear, originalWinPct)} selected={selectedPickIds.includes(pk.id)} onClick={() => onTogglePick(pk)} />
+          );
+        })}
         {tab === "picks" && picks.length === 0 && <div className="text-[11px] text-slate-500 py-2">Sem picks futuras disponíveis.</div>}
       </div>
     </Card>
@@ -1065,8 +1087,8 @@ function TradeScreen({ myTeam, career, onTrade }) {
   const myPicks = myPicksAvail.filter((pk) => myPickIds.includes(pk.id));
   const theirPicks = theirPicksAvail.filter((pk) => theirPickIds.includes(pk.id));
 
-  const myVal = myPlayers.reduce((s, p) => s + playerValue(p), 0) + myPicks.reduce((s, pk) => s + pickTradeValue(pk.round, pk.year, career.year), 0);
-  const theirVal = theirPlayers.reduce((s, p) => s + playerValue(p), 0) + theirPicks.reduce((s, pk) => s + pickTradeValue(pk.round, pk.year, career.year), 0);
+  const myVal = myPlayers.reduce((s, p) => s + playerValue(p), 0) + myPicks.reduce((s, pk) => s + pickTradeValue(pk.round, pk.year, career.year, winPctOf(career.leagueTeams[pk.originalAbbr])), 0);
+  const theirVal = theirPlayers.reduce((s, p) => s + playerValue(p), 0) + theirPicks.reduce((s, pk) => s + pickTradeValue(pk.round, pk.year, career.year, winPctOf(career.leagueTeams[pk.originalAbbr])), 0);
   const totalVal = myVal + theirVal || 1;
   const hasAssets = (myPlayers.length + myPicks.length > 0) && (theirPlayers.length + theirPicks.length > 0);
   const fair = hasAssets && theirVal <= myVal * 1.15;
@@ -1105,10 +1127,10 @@ function TradeScreen({ myTeam, career, onTrade }) {
       </Card>
 
       <div className="grid grid-cols-2 gap-3 mb-3">
-        <TradeSide title="Você oferece" teamAbbr={myTeam.abbr} roster={myTeam.roster} picks={myPicksAvail} currentYear={career.year}
+        <TradeSide title="Você oferece" teamAbbr={myTeam.abbr} roster={myTeam.roster} picks={myPicksAvail} currentYear={career.year} leagueTeams={career.leagueTeams}
           selectedPlayerIds={myPlayerIds} selectedPickIds={myPickIds}
           onTogglePlayer={(p) => toggle(setMyPlayerIds, p.id)} onTogglePick={(pk) => toggle(setMyPickIds, pk.id)} />
-        <TradeSide title="Você recebe" teamAbbr={targetAbbr} roster={target.roster} picks={theirPicksAvail} currentYear={career.year}
+        <TradeSide title="Você recebe" teamAbbr={targetAbbr} roster={target.roster} picks={theirPicksAvail} currentYear={career.year} leagueTeams={career.leagueTeams}
           selectedPlayerIds={theirPlayerIds} selectedPickIds={theirPickIds}
           onTogglePlayer={(p) => toggle(setTheirPlayerIds, p.id)} onTogglePick={(pk) => toggle(setTheirPickIds, pk.id)} />
       </div>

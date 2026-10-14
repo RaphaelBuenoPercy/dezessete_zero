@@ -289,23 +289,23 @@ function simPlay(offAbbr, defAbbr, offRoster, defRoster, down, distance, ballOn,
       const brokenUp = rng() < 0.5;
       if (brokenUp) {
         statAdd(defender, "passesDefended", 1);
-        statAdd(qb, "passAttempts", 1);
+        statAdd(qb, "passAttempts", 1); statAdd(target, "targets", 1);
         return { yards: 0, desc: `${qb.name} tenta ${concept.name}${motionTag}${personnelTag}, mas ${defender.name} defende bem o passe.`, isPass: true, incomplete: true, target, dir: concept.dir, depth: concept.depth, personnel, elapsed: randInt(rng, 24, 34) };
       }
       const intChance = clamp(concept.baseInt - diff * 0.01 + (hurried ? 0.05 : 0), 0.01, 0.22);
       if (rng() < intChance) {
-        statAdd(qb, "interceptionsThrown", 1); statAdd(qb, "passAttempts", 1);
+        statAdd(qb, "interceptionsThrown", 1); statAdd(qb, "passAttempts", 1); statAdd(target, "targets", 1);
         statAdd(defender, "interceptions", 1);
         return { yards: 0, desc: `Passe de ${qb.name} (${concept.name}) interceptado por ${defender.name}!`, isPass: true, turnover: "INT", target, dir: concept.dir, depth: concept.depth, personnel, elapsed: randInt(rng, 24, 34) };
       }
-      statAdd(qb, "passAttempts", 1);
+      statAdd(qb, "passAttempts", 1); statAdd(target, "targets", 1);
       return { yards: 0, desc: `${qb.name} tenta ${concept.name} para ${target.name}${motionTag}${personnelTag}... incompleto.`, isPass: true, incomplete: true, target, dir: concept.dir, depth: concept.depth, personnel, elapsed: randInt(rng, 24, 34) };
     }
     let yards = Math.max(0, Math.round(concept.baseYards + diff * 1 + randInt(rng, concept.varLow, concept.varHigh)));
     if (rng() < concept.bigPlayChance) yards += randInt(rng, 15, 45);
     const tackler = pickW(rng, [...secondary, ...frontSeven.filter((p) => p.pos === "LB")], tackleWeight);
     statAdd(qb, "passYards", yards); statAdd(qb, "passCompletions", 1); statAdd(qb, "passAttempts", 1);
-    statAdd(target, "receptions", 1); statAdd(target, "receivingYards", yards);
+    statAdd(target, "targets", 1); statAdd(target, "receptions", 1); statAdd(target, "receivingYards", yards);
     statAdd(tackler, "tackles", 1);
     return { yards, desc: `${qb.name} completa ${concept.name} para ${target.name}${motionTag}${personnelTag} (${yards} jds), derrubado por ${tackler.name}.`, isPass: true, target, passer: qb, dir: concept.dir, depth: concept.depth, personnel, elapsed: randInt(rng, 28, 40) };
   } else {

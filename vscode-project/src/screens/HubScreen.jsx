@@ -150,6 +150,7 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onOpenTe
               </div>
             )}
           </div>
+          <Btn variant="ghost" className="w-full mt-3" onClick={() => go("honors")}>🏆 Ver a cerimônia do NFL Honors</Btn>
         </Card>
       )}
 

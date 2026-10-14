@@ -1,4 +1,4 @@
-import { pickValue as baseRoundValue } from "../engine/playerGen.js";
+import { clamp } from "../lib/rng.js";
 
 // ============================================================
 // DRAFT PICK OWNERSHIP
@@ -57,12 +57,40 @@ function teamPicks(futurePicks, abbr) {
   return futurePicks.filter((p) => p.currentOwner === abbr).sort((a, b) => a.year - b.year || a.round - b.round);
 }
 
-// Draft equity for a pick: the same round-value curve free agency/trades
-// already use, discounted a bit the further out it is (a pick two years
-// away is worth less certainty than this year's).
-function pickTradeValue(round, year, currentYear) {
+// Draft equity for a pick — and, critically, WHERE in the round it's
+// likely to land. A bad team's 1st-rounder (probably picking near the
+// top) is worth far more than a contender's 1st-rounder (probably
+// picking near the bottom), the same way a real draft-value chart works.
+// Each round has a floor (worst likely slot) and a spread added on top
+// for how early the projected slot is; value also fades a bit the
+// further out the pick is, since nothing that far away is a sure thing.
+const ROUND_CURVE = {
+  1: { base: 45, spread: 65 }, 2: { base: 20, spread: 20 }, 3: { base: 12, spread: 10 },
+  4: { base: 7, spread: 6 }, 5: { base: 4, spread: 3 }, 6: { base: 2.5, spread: 1.5 }, 7: { base: 1.5, spread: 1 },
+};
+
+// 0 (worst likely slot, bottom of the round) .. 1 (best likely slot, top
+// of the round) from the owning team's current win percentage — a team
+// struggling now projects to pick early; a team near the top projects late.
+function projectedSlotFactor(winPct) {
+  return clamp(1 - winPct, 0.05, 0.95);
+}
+
+function pickTradeValue(round, year, currentYear, originalWinPct = 0.5) {
+  const curve = ROUND_CURVE[round] || ROUND_CURVE[7];
+  const slot = projectedSlotFactor(originalWinPct);
+  const value = curve.base + curve.spread * slot;
   const yearsOut = Math.max(0, year - currentYear);
-  return baseRoundValue(round) * Math.pow(0.88, yearsOut);
+  return value * Math.pow(0.92, yearsOut);
+}
+
+// A short read on draft slot, for display next to a pick ("topo da
+// rodada" etc.) so the projection isn't just a hidden number.
+function pickProjectionLabel(winPct) {
+  const slot = projectedSlotFactor(winPct);
+  if (slot >= 0.7) return { label: "topo da rodada", color: "#4ade80" };
+  if (slot >= 0.4) return { label: "meio da rodada", color: "#94a3b8" };
+  return { label: "final da rodada", color: "#f87171" };
 }
 
 function pickLabel(pick) {
@@ -70,4 +98,4 @@ function pickLabel(pick) {
   return `${pick.year} · ${ord} rodada`;
 }
 
-export { generatePicksForYear, rollFuturePicks, resolvePickOwner, consumePick, teamPicks, pickTradeValue, pickLabel };
+export { generatePicksForYear, rollFuturePicks, resolvePickOwner, consumePick, teamPicks, pickTradeValue, pickProjectionLabel, pickLabel };

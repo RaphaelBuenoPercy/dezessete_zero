@@ -99,17 +99,22 @@ function seasonValueScore(player, team) {
   return prod * (0.7 + winPct * 0.6);
 }
 
+// Fixed headcounts, not percentiles — a position with 100 qualifying
+// players (LB, DL) shouldn't flood "S" with ten guys just because it has
+// more roster slots than, say, kicker. Everyone past the counted tiers
+// still shows, just in D.
 const TIERS = [
-  { key: "S", label: "S — Elite", color: "#facc15", cut: 0.08 },
-  { key: "A", label: "A — Muito bom", color: "#4ade80", cut: 0.25 },
-  { key: "B", label: "B — Sólido", color: "#38bdf8", cut: 0.55 },
-  { key: "C", label: "C — Mediano", color: "#94a3b8", cut: 0.85 },
-  { key: "D", label: "D — Abaixo da média", color: "#f87171", cut: 1.0 },
+  { key: "S", label: "S — Elite", color: "#facc15", count: 5 },
+  { key: "A", label: "A — Muito bom", color: "#4ade80", count: 8 },
+  { key: "B", label: "B — Sólido", color: "#38bdf8", count: 10 },
+  { key: "C", label: "C — Mediano", color: "#94a3b8", count: 10 },
+  { key: "D", label: "D — Abaixo da média", color: "#f87171", count: Infinity },
 ];
 
-// Every player at `pos` league-wide, bucketed into tiers by percentile
-// rank on the same value score the season awards use. Needs at least a
-// handful of live stat lines to be meaningful.
+// Every player at `pos` league-wide, best score first, sliced into fixed-
+// size tiers (so "S" always means roughly the same number of players,
+// whatever the position). Needs at least a handful of live stat lines to
+// be meaningful.
 function buildTierList(leagueTeams, pos) {
   const entries = [];
   Object.values(leagueTeams).forEach((t) => {
@@ -118,12 +123,11 @@ function buildTierList(leagueTeams, pos) {
     });
   });
   entries.sort((a, b) => b.score - a.score);
-  const n = entries.length;
   const tiers = TIERS.map((t) => ({ ...t, players: [] }));
-  entries.forEach((e, i) => {
-    const pct = n > 1 ? i / (n - 1) : 0;
-    const tier = TIERS.find((t) => pct <= t.cut) || TIERS[TIERS.length - 1];
-    tiers.find((t) => t.key === tier.key).players.push(e);
+  let i = 0;
+  tiers.forEach((t) => {
+    t.players = entries.slice(i, i + t.count);
+    i += t.count;
   });
   return tiers.filter((t) => t.players.length > 0);
 }

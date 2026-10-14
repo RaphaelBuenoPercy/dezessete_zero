@@ -11,11 +11,20 @@
 // nemesis detector in rivalries.js, but framed for anyone's box score
 // instead of "contra você", since this covers the whole league.
 function standoutLine(s) {
-  const tds = (s.receivingTD || 0) + (s.rushTD || 0);
-  if (tds >= 2) return `${tds} TDs`;
+  const recTds = s.receivingTD || 0, rushTds = s.rushTD || 0;
+  // Receiving performances always get the full line — targets, catches,
+  // yards, TDs — never just an isolated TD count.
+  if ((s.receivingYards || 0) >= 110 || recTds >= 2 || (s.receptions || 0) >= 7) {
+    const parts = [`${s.targets || s.receptions || 0} alvos`, `${s.receptions || 0} rec`, `${s.receivingYards || 0} jds`];
+    if (recTds) parts.push(`${recTds} TD`);
+    return parts.join(", ");
+  }
   if ((s.passYards || 0) >= 300) return `${s.passYards} jds aéreas${s.passTD ? `, ${s.passTD} TD` : ""}`;
-  if ((s.rushYards || 0) >= 100) return `${s.rushYards} jds de corrida`;
-  if ((s.receivingYards || 0) >= 110) return `${s.receivingYards} jds recebidas`;
+  if ((s.rushYards || 0) >= 100 || rushTds >= 2) {
+    const parts = [`${s.rushYards || 0} jds de corrida`];
+    if (rushTds) parts.push(`${rushTds} TD`);
+    return parts.join(", ");
+  }
   if ((s.sacks || 0) >= 2) return `${s.sacks} sacks`;
   if ((s.interceptions || 0) >= 2) return `${s.interceptions} interceptações`;
   return null;
