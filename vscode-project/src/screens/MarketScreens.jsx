@@ -2,11 +2,12 @@ import React, { useState } from "react";
 import { clamp } from "../lib/rng.js";
 import { CAP, TEAM_META } from "../data/teams.js";
 import { SUB_ATTRS } from "../data/rosterSlots.js";
-import { capUsed, playerValue } from "../engine/playerGen.js";
+import { capUsed } from "../engine/playerGen.js";
 import { scoreTeamForFreeAgent, teamNeeds } from "../season/freeAgencyAI.js";
 import { scoreOffer, rankOffers } from "../season/negotiation.js";
 import { ovrGrade, gradeColor, scoutingReport, fitForTeam, pickValueRead } from "../season/scouting.js";
-import { resolvePickOwner, teamPicks, pickTradeValue, pickProjectionLabel, pickLabel } from "../season/picks.js";
+import { resolvePickOwner, teamPicks, pickProjectionLabel, pickLabel } from "../season/picks.js";
+import { evaluateTrade, valueToTeam, valueLostByTeam, pickValueForTeam, incomingRole, outgoingRole } from "../season/trades.js";
 import { STAT_CATEGORIES, RATIO_STATS, gamesPlayedThisSeason, ratioMinimum, statRatioValue, formatStatValue, leagueLeaders } from "../season/stats.js";
 import { buildTierList } from "../season/powerRankings.js";
 import { GAME_RECORD_CATS, SEASON_RECORD_CATS } from "../season/records.js";
@@ -1037,7 +1038,7 @@ function AssetToggleRow({ label, sub, value, selected, onClick }) {
 
 // One side of the trade sheet: a team's roster and tradeable picks, tabbed,
 // each entry toggling in/out of the offer.
-function TradeSide({ title, teamAbbr, roster, picks, currentYear, leagueTeams, selectedPlayerIds, selectedPickIds, onTogglePlayer, onTogglePick }) {
+function TradeSide({ title, teamAbbr, roster, picks, currentYear, leagueTeams, aiTeam, side, selectedPlayerIds, selectedPickIds, onTogglePlayer, onTogglePick }) {
   const [tab, setTab] = useState("players");
   return (
     <Card>
@@ -1049,8 +1050,9 @@ function TradeSide({ title, teamAbbr, roster, picks, currentYear, leagueTeams, s
       </div>
       <div className="max-h-56 overflow-y-auto">
         {tab === "players" && [...roster].sort((a, b) => b.ovr - a.ovr).map((p) => (
-          <AssetToggleRow key={p.id} label={`${p.pos} ${p.name}`} sub={`${p.ovr} OVR · idade ${p.age}`}
-            value={playerValue(p)} selected={selectedPlayerIds.includes(p.id)} onClick={() => onTogglePlayer(p)} />
+          <AssetToggleRow key={p.id} label={`${p.pos} ${p.name}`}
+            sub={`${p.ovr} OVR · idade ${p.age} · ${side === "mine" ? incomingRole(p, aiTeam) : outgoingRole(p, aiTeam)}`}
+            value={side === "mine" ? valueToTeam(p, aiTeam) : valueLostByTeam(p, aiTeam)} selected={selectedPlayerIds.includes(p.id)} onClick={() => onTogglePlayer(p)} />
         ))}
         {tab === "picks" && picks.map((pk) => {
           const originalWinPct = winPctOf(leagueTeams[pk.originalAbbr]);
@@ -1058,7 +1060,7 @@ function TradeSide({ title, teamAbbr, roster, picks, currentYear, leagueTeams, s
           const sub = `${pk.originalAbbr !== teamAbbr ? `via ${pk.originalAbbr} · ` : ""}projeção: ${proj.label}`;
           return (
             <AssetToggleRow key={pk.id} label={pickLabel(pk)} sub={sub}
-              value={pickTradeValue(pk.round, pk.year, currentYear, originalWinPct)} selected={selectedPickIds.includes(pk.id)} onClick={() => onTogglePick(pk)} />
+              value={pickValueForTeam(pk, aiTeam, leagueTeams, currentYear)} selected={selectedPickIds.includes(pk.id)} onClick={() => onTogglePick(pk)} />
           );
         })}
         {tab === "picks" && picks.length === 0 && <div className="text-[11px] text-slate-500 py-2">Sem picks futuras disponíveis.</div>}
@@ -1087,11 +1089,10 @@ function TradeScreen({ myTeam, career, onTrade }) {
   const myPicks = myPicksAvail.filter((pk) => myPickIds.includes(pk.id));
   const theirPicks = theirPicksAvail.filter((pk) => theirPickIds.includes(pk.id));
 
-  const myVal = myPlayers.reduce((s, p) => s + playerValue(p), 0) + myPicks.reduce((s, pk) => s + pickTradeValue(pk.round, pk.year, career.year, winPctOf(career.leagueTeams[pk.originalAbbr])), 0);
-  const theirVal = theirPlayers.reduce((s, p) => s + playerValue(p), 0) + theirPicks.reduce((s, pk) => s + pickTradeValue(pk.round, pk.year, career.year, winPctOf(career.leagueTeams[pk.originalAbbr])), 0);
+  const verdict = evaluateTrade(career.leagueTeams, targetAbbr, { players: myPlayers, picks: myPicks }, { players: theirPlayers, picks: theirPicks }, career.year);
+  const myVal = verdict.gain, theirVal = verdict.loss, hasAssets = verdict.hasAssets, fair = verdict.fair;
   const totalVal = myVal + theirVal || 1;
-  const hasAssets = (myPlayers.length + myPicks.length > 0) && (theirPlayers.length + theirPicks.length > 0);
-  const fair = hasAssets && theirVal <= myVal * 1.15;
+  const missing = Math.max(0, Math.ceil(theirVal * 1.05 - myVal));
   const needs = teamNeeds(target).slice(0, 3);
 
   function submit() {
@@ -1102,7 +1103,7 @@ function TradeScreen({ myTeam, career, onTrade }) {
   return (
     <div className="pb-24">
       <h2 className="text-xl font-black mb-1">Central de trocas</h2>
-      <p className="text-xs text-slate-500 mb-4">Monte a proposta com jogadores de qualquer posição e picks futuras — até 3 anos à frente.</p>
+      <p className="text-xs text-slate-500 mb-4">Monte a proposta com jogadores de qualquer posição e picks futuras — até 3 anos à frente. Os valores são do ponto de vista do outro time: talento, posição, idade e o quanto o elenco deles precisa daquele jogador.</p>
 
       <Card className="mb-3">
         <div className="text-xs text-slate-400 mb-2">Negociar com</div>
@@ -1127,10 +1128,10 @@ function TradeScreen({ myTeam, career, onTrade }) {
       </Card>
 
       <div className="grid grid-cols-2 gap-3 mb-3">
-        <TradeSide title="Você oferece" teamAbbr={myTeam.abbr} roster={myTeam.roster} picks={myPicksAvail} currentYear={career.year} leagueTeams={career.leagueTeams}
+        <TradeSide title="Você oferece" teamAbbr={myTeam.abbr} roster={myTeam.roster} picks={myPicksAvail} currentYear={career.year} leagueTeams={career.leagueTeams} aiTeam={target} side="mine"
           selectedPlayerIds={myPlayerIds} selectedPickIds={myPickIds}
           onTogglePlayer={(p) => toggle(setMyPlayerIds, p.id)} onTogglePick={(pk) => toggle(setMyPickIds, pk.id)} />
-        <TradeSide title="Você recebe" teamAbbr={targetAbbr} roster={target.roster} picks={theirPicksAvail} currentYear={career.year} leagueTeams={career.leagueTeams}
+        <TradeSide title="Você recebe" teamAbbr={targetAbbr} roster={target.roster} picks={theirPicksAvail} currentYear={career.year} leagueTeams={career.leagueTeams} aiTeam={target} side="theirs"
           selectedPlayerIds={theirPlayerIds} selectedPickIds={theirPickIds}
           onTogglePlayer={(p) => toggle(setTheirPlayerIds, p.id)} onTogglePick={(pk) => toggle(setTheirPickIds, pk.id)} />
       </div>
@@ -1147,7 +1148,7 @@ function TradeScreen({ myTeam, career, onTrade }) {
             <span className="w-14 tabular-nums text-amber-300 font-semibold">{theirVal.toFixed(0)}</span>
           </div>
           <div className="flex justify-between text-[11px] text-slate-500 mb-2">
-            <span>Você envia ({myPlayers.length + myPicks.length})</span><span>Você recebe ({theirPlayers.length + theirPicks.length})</span>
+            <span>Vale pra eles ({myPlayers.length + myPicks.length})</span><span>Eles perdem ({theirPlayers.length + theirPicks.length})</span>
           </div>
           <div className="flex flex-wrap gap-1.5 mb-2">
             {myPlayers.map((p) => <span key={"p" + p.id} className="text-[10px] px-1.5 py-0.5 rounded bg-sky-400/10 text-sky-300 border border-sky-400/30">{p.name}</span>)}
@@ -1157,7 +1158,7 @@ function TradeScreen({ myTeam, career, onTrade }) {
           </div>
           {hasAssets && (
             <div className={`text-center text-xs font-semibold py-1.5 rounded-md ${fair ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400"}`}>
-              {fair ? "✓ Proposta equilibrada — tendência de aceite" : "✗ Muito desequilibrada — tendência de recusa"}
+              {fair ? "✓ Eles aceitam essa troca" : `✗ Eles recusam — faltam ~${missing} de valor pra eles`}
             </div>
           )}
         </Card>

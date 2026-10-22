@@ -89,4 +89,4 @@ function releaseToMarket(team, playerId, freeAgentPool, rng) {
   return fa;
 }
 
-export { isExpiring, extensionAsk, processAIContracts, releaseToMarket, MARKET_MIN_OVR };
+export { isExpiring, extensionAsk, processAIContracts, releaseToMarket, replacementFor, MARKET_MIN_OVR };
