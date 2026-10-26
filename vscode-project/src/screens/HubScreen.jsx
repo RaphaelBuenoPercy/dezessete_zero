@@ -10,7 +10,7 @@ import { Bar, Card, Btn, TeamLogo } from "../components/ui.jsx";
 // The main dashboard shown between weeks: next game, standings blurb,
 // news feed, cap room, and the season/offseason action buttons.
 
-function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onOpenTeam }) {
+function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onSimSeason, onOpenTeam }) {
   const tm = TEAM_META.find((t) => t.abbr === myTeam.abbr);
   const round = career.schedule[career.week - 1];
   const nextGame = round?.find((g) => g.home === myTeam.abbr || g.away === myTeam.abbr);
@@ -89,6 +89,7 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onOpenTe
                 <TeamLogo abbr={oppAbbr} size={44} />
               </button>
               <Btn className="w-full mt-4 py-3" color={tm.c1} disabled={gamePending} onClick={onPlayWeek}>Jogar semana {career.week}</Btn>
+              <Btn variant="ghost" className="w-full mt-2" disabled={gamePending} onClick={onSimSeason}>⏩ Simular temporada inteira</Btn>
             </>
           ) : (
             <div className="text-center py-4">
@@ -103,7 +104,12 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onOpenTe
         <Card className="mb-4">
           <div className="font-bold mb-2">🏆 Playoffs — {career.playoffs.roundLabel}</div>
           <div className="text-sm text-slate-300 mb-3">{career.playoffs.champion ? `Campeão: ${TEAM_META.find(t=>t.abbr===career.playoffs.champion)?.name}!` : "Confira o chaveamento em Classificação."}</div>
-          {!career.playoffs.champion && <Btn disabled={gamePending} onClick={onSimPlayoffRound}>Simular rodada</Btn>}
+          {!career.playoffs.champion && (
+            <div className="space-y-2">
+              <Btn className="w-full" disabled={gamePending} onClick={onSimPlayoffRound}>Simular rodada</Btn>
+              <Btn variant="ghost" className="w-full" disabled={gamePending} onClick={onSimSeason}>⏩ Simular até o fim da temporada</Btn>
+            </div>
+          )}
           {career.playoffs.champion && <Btn disabled={gamePending} onClick={onSimPlayoffRound}>Avançar para a offseason</Btn>}
         </Card>
       )}
@@ -153,6 +159,8 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onOpenTe
           <Btn variant="ghost" className="w-full mt-3" onClick={() => go("honors")}>🏆 Ver a cerimônia do NFL Honors</Btn>
         </Card>
       )}
+
+      <Btn variant="ghost" className="w-full mb-4" onClick={() => go("history")}>📚 Histórico de temporadas</Btn>
 
       <Card className="mb-4">
         <div className="text-xs text-slate-400 mb-2">Cap space</div>
