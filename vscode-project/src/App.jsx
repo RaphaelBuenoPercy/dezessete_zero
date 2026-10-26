@@ -60,6 +60,14 @@ function maybeFireDraftGrade(c, rng) {
   if (!c.pressPending) c.pressPending = buildPressEvent("draft_grade", { pickCount: mine.length, steals }, rng);
 }
 
+// Every AI team re-sorts its depth chart (promote a better bench player,
+// order each group best-to-worst). Runs after anything that changes AI
+// rosters or ratings — free agency, the draft, the yearly rollover — so a
+// star rookie or signing actually starts. Your own team is never touched.
+function sortAIDepth(c) {
+  Object.values(c.leagueTeams).forEach((t) => { if (t.abbr !== c.teamAbbr) autoSortDepth(t); });
+}
+
 export default function App() {
   const [screen, setScreen] = useState("menu");
   const [detail, setDetail] = useState(null);
@@ -425,6 +433,7 @@ export default function App() {
           });
           c.freeAgencyActivity = [...openingSignings, ...c.freeAgencyActivity].slice(0, 20);
         }
+        sortAIDepth(c);
       }
       return c;
     });
@@ -463,6 +472,7 @@ export default function App() {
 
       const { news: retirementNews, retirees } = retireAndRefreshLeague(c.leagueTeams, c.year + 1);
       c.news.push(...retirementNews.slice(0, 5));
+      sortAIDepth(c);
       if (!c.hallOfFame) c.hallOfFame = [];
       retirees.filter((r) => r.legendary).forEach((r) => c.hallOfFame.push({ ...r, retiredYear: c.year }));
 
@@ -628,6 +638,7 @@ export default function App() {
       }
     });
     c.freeAgencyActivity = [...signings, ...(c.freeAgencyActivity || [])].slice(0, 20);
+    sortAIDepth(c);
   }
 
   // Puts a contract offer (years + AAV) on the table for a free agent. This
@@ -719,6 +730,7 @@ export default function App() {
         c.draftPickIndex += 1;
       }
       maybeFireDraftGrade(c, rng);
+      sortAIDepth(c);
       return c;
     });
   }
@@ -738,228 +750,6 @@ export default function App() {
       const mineDesc = [...mine.players.map((p) => p.name), ...mine.picks.map(pickLabel)].join(", ") || "nada";
       const theirsDesc = [...theirs.players.map((p) => p.name), ...theirs.picks.map(pickLabel)].join(", ") || "nada";
       c.news.push(`Troca concluída com o ${targetAbbr}: você envia ${mineDesc} e recebe ${theirsDesc}.`);
-      if (!c.tradeHistory) c.tradeHistory = [];
-      c.tradeHistory.unshift({ year: c.year, targetAbbr, sent: mineDesc, received: theirsDesc });
-      c.tradeHistory = c.tradeHistory.slice(0, 15);
-      return c;
-    });
-  }
-
-  // Extends an expiring player on the terms they ask (shaped by morale).
-  // years is stored +1 because the season whose rollover is pending counts.
-  function extendContract(playerId) {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      const t = c.leagueTeams[c.teamAbbr];
-      const p = t.roster.find((x) => x.id === playerId);
-      if (!p) return c;
-      const ask = extensionAsk(p);
-      if (!ask.willing) return c;
-      if (capUsed(t.roster) - p.salary + ask.salary > CAP) return c;
-      p.salary = ask.salary;
-      p.years = ask.years + 1;
-      p.morale = clamp((p.morale ?? 65) + 6, 0, 100);
-      c.news.push(`✍️ ${p.name} renovou por ${ask.years} ano(s) — $${ask.salary.toFixed(1)}M/ano.`);
-      return c;
-    });
-  }
-
-  // Lets an expiring player walk to the free-agent pool.
-  function releaseExpiring(playerId) {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      const t = c.leagueTeams[c.teamAbbr];
-      const rng = mulberry32(seedFromString(c.id + "-release-" + playerId));
-      const fa = releaseToMarket(t, playerId, c.freeAgentPool, rng);
-      if (fa) c.news.push(`${fa.name} não renovou e foi para o mercado.`);
-      return c;
-    });
-  }
-
-  function choosePress(opt) {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      const t = c.leagueTeams[c.teamAbbr];
-      t.ownerConfidence = clamp(t.ownerConfidence + (opt.owner || 0), 0, 100);
-      t.fanSupport = clamp(t.fanSupport + (opt.fan || 0), 0, 100);
-      if (opt.moraleTarget) {
-        const target = t.roster.find((p) => p.id === opt.moraleTarget);
-        if (target) target.morale = clamp((target.morale ?? 65) + (opt.moraleDelta || 0), 0, 100);
-      }
-      c.pressPending = null;
-      return c;
-    });
-  }
-
-  function autoSortDepthChart() {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      const t = c.leagueTeams[c.teamAbbr];
-      const dlSlots = t.scheme === "3-4" ? ["DE1", "DE2", "NT1"] : ["DE1", "DE2", "DT1", "DT2"];
-      const lbSlots = t.scheme === "3-4" ? ["LB1", "LB2", "LB3", "LB4"] : ["LB1", "LB2", "LB3"];
-      const groups = [["QB1", "QB2"], ["RB1", "RB2"], ["WR1", "WR2", "WR3"], dlSlots, lbSlots, ["CB1", "CB2", "CB3"], ["S1", "S2"]];
-      groups.forEach((slots) => {
-        const players = slots.map((s) => t.roster.find((p) => p.slot === s)).filter(Boolean);
-        if (players.length !== slots.length) return; // an expected slot is missing — leave this group alone
-        const expectedPos = players[0].pos;
-        if (!players.every((p) => p.pos === expectedPos)) return; // unexpected mix — safer to skip than guess
-        const sorted = [...players].sort((a, b) => b.ovr - a.ovr);
-        slots.forEach((s, i) => { sorted[i].slot = s; });
-      });
-      return c;
-    });
-  }
-
-  function swapSlot(fromSlot) {
-    if (!swapFrom) { setSwapFrom(fromSlot); return; }
-    if (swapFrom === fromSlot) { setSwapFrom(null); return; }
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      const t = c.leagueTeams[c.teamAbbr];
-      const pA = t.roster.find((p) => p.slot === swapFrom);
-      const pB = t.roster.find((p) => p.slot === fromSlot);
-      if (pA && pB && pA.pos === pB.pos) { pA.slot = fromSlot; pB.slot = swapFrom; }
-      return c;
-    });
-    setSwapFrom(null);
-  }
-
-  // Logs the outcome of a batch of signings resolved this tick, phrased
-  // differently depending on whether the user's team won, lost, or wasn't
-  // involved in that particular negotiation.
-  function logSignings(c, signings) {
-    signings.forEach((s) => {
-      const t = c.leagueTeams[s.teamAbbr];
-      const beatUser = s.beatenTeams?.includes(c.teamAbbr);
-      if (s.teamAbbr === c.teamAbbr) {
-        const beat = s.beatenTeams?.length ? ` (superou proposta de ${s.beatenTeams.join(", ")})` : "";
-        c.news.push(`Contratado: ${s.name} (${s.pos}, OVR ${s.ovr}) ${s.reason}${beat}.`);
-      } else {
-        c.news.push(`Free agency: ${s.name} (${s.pos}, OVR ${s.ovr}) assinou com o ${t.city} ${t.name} ${s.reason}${beatUser ? " — sua proposta não foi suficiente" : ""}.`);
-      }
-    });
-    c.freeAgencyActivity = [...signings, ...(c.freeAgencyActivity || [])].slice(0, 20);
-  }
-
-  // Puts a contract offer (years + AAV) on the table for a free agent. This
-  // no longer signs them outright — it enters them into the same bidding
-  // war every rival team is fighting. A dominant offer can close on the
-  // spot; a merely competitive one sits and waits for the market to move.
-  function makeFreeAgentOffer(fa, offer) {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      if (!c.faMarket) c.faMarket = {};
-      const player = c.freeAgentPool.find((p) => p.id === fa.id);
-      if (!player) return c;
-      const t = c.leagueTeams[c.teamAbbr];
-      if (CAP - capUsed(t.roster) < offer.salary) return c;
-      const rng = mulberry32(seedFromString(c.id + "-fa-offer-" + player.id + "-" + Date.now()));
-      submitUserOffer(c.faMarket, player, c.teamAbbr, offer, rng);
-      // The rest of the league doesn't stand still while you negotiate.
-      aiOffersWave(c.leagueTeams, c.freeAgentPool, c.faMarket, rng, { excludeAbbr: c.teamAbbr, needsPerTeam: 3 });
-      const signings = resolveMarket(c.leagueTeams, c.freeAgentPool, c.faMarket, rng);
-      logSignings(c, signings);
-      return c;
-    });
-  }
-
-  function withdrawFreeAgentOffer(playerId) {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      if (c.faMarket) withdrawUserOffer(c.faMarket, playerId, c.teamAbbr);
-      return c;
-    });
-  }
-
-  function advanceFreeAgencyMarket() {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      if (!c.faMarket) c.faMarket = {};
-      const faRng = mulberry32(seedFromString(c.id + "-fa-advance-" + c.freeAgentPool.length + "-" + Date.now()));
-      aiOffersWave(c.leagueTeams, c.freeAgentPool, c.faMarket, faRng, { excludeAbbr: c.teamAbbr, needsPerTeam: 3 });
-      const signings = resolveMarket(c.leagueTeams, c.freeAgentPool, c.faMarket, faRng);
-      logSignings(c, signings);
-      return c;
-    });
-  }
-
-  function draftPick(prospect) {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      const order = c.draftOrder;
-      const draftYear = c.year + 1;
-      const round = Math.floor(c.draftPickIndex / order.length) + 1;
-      const pickInRound = (c.draftPickIndex % order.length) + 1;
-      const teamAbbr = resolvePickOwner(c.futurePicks, order, draftYear, round, c.draftPickIndex);
-      const t = c.leagueTeams[teamAbbr];
-      const slot = findSlotForRookie(t.roster, prospect.pos);
-      insertPlayer(t.roster, slot, { ...prospect, slot });
-      c.draftClass = c.draftClass.filter((p) => p.id !== prospect.id);
-      consumePick(c.futurePicks, order, draftYear, round, c.draftPickIndex);
-      if (teamAbbr === c.teamAbbr) c.news.push(`Draft: ${teamAbbr} seleciona ${prospect.name} (${prospect.pos}).`);
-      if (!c.draftHistory) c.draftHistory = [];
-      c.draftHistory.push({ round, pick: pickInRound, teamAbbr, name: prospect.name, pos: prospect.pos, ovr: prospect.ovr, projectedRound: prospect.draftRound });
-      c.draftPickIndex += 1;
-      const gradeRng = mulberry32(seedFromString(c.id + "-draftgrade"));
-      maybeFireDraftGrade(c, gradeRng);
-      return c;
-    });
-  }
-
-  function simToMyPick() {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      const rng = mulberry32(seedFromString(c.id + "-draftauto" + c.draftPickIndex));
-      const order = c.draftOrder;
-      const draftYear = c.year + 1;
-      const total = order.length * 7;
-      if (!c.draftHistory) c.draftHistory = [];
-      while (c.draftPickIndex < total) {
-        const round = Math.floor(c.draftPickIndex / order.length) + 1;
-        const pickInRound = (c.draftPickIndex % order.length) + 1;
-        const teamAbbr = resolvePickOwner(c.futurePicks, order, draftYear, round, c.draftPickIndex);
-        if (teamAbbr === c.teamAbbr) break;
-        if (!c.draftClass.length) break;
-        const t = c.leagueTeams[teamAbbr];
-        const prospect = pickForTeamAI(rng, t, c.draftClass) || c.draftClass[0];
-        const slot = findSlotForRookie(t.roster, prospect.pos);
-        insertPlayer(t.roster, slot, { ...prospect, slot });
-        c.draftHistory.push({ round, pick: pickInRound, teamAbbr, name: prospect.name, pos: prospect.pos, ovr: prospect.ovr, projectedRound: prospect.draftRound });
-        c.draftClass = c.draftClass.filter((p) => p.id !== prospect.id);
-        consumePick(c.futurePicks, order, draftYear, round, c.draftPickIndex);
-        c.draftPickIndex += 1;
-      }
-      maybeFireDraftGrade(c, rng);
-      return c;
-    });
-  }
-
-  // A trade offer is any mix of players and future picks on both sides.
-  // `mine`/`theirs` are { players: [...], picks: [...] }. Picks just move
-  // ownership (`currentOwner`); players swap rosters, landing in whatever
-  // slot the departing player vacated.
-  function proposeTrade(mine, theirs, targetAbbr, fair) {
-    if (!fair) { alert("O outro time recusou: a proposta não é justa o suficiente."); return; }
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      const my = c.leagueTeams[c.teamAbbr], their = c.leagueTeams[targetAbbr];
-
-      function movePlayer(fromTeam, toTeam, playerId) {
-        const idx = fromTeam.roster.findIndex((p) => p.id === playerId);
-        if (idx < 0) return;
-        const [player] = fromTeam.roster.splice(idx, 1);
-        const slot = findSlotForRookie(toTeam.roster, player.pos);
-        insertPlayer(toTeam.roster, slot, { ...player, slot });
-      }
-      mine.players.forEach((p) => movePlayer(my, their, p.id));
-      theirs.players.forEach((p) => movePlayer(their, my, p.id));
-      mine.picks.forEach((pk) => { const asset = c.futurePicks.find((x) => x.id === pk.id); if (asset) asset.currentOwner = targetAbbr; });
-      theirs.picks.forEach((pk) => { const asset = c.futurePicks.find((x) => x.id === pk.id); if (asset) asset.currentOwner = c.teamAbbr; });
-
-      const mineDesc = [...mine.players.map((p) => p.name), ...mine.picks.map(pickLabel)].join(", ") || "nada";
-      const theirsDesc = [...theirs.players.map((p) => p.name), ...theirs.picks.map(pickLabel)].join(", ") || "nada";
-      const summary = `Troca concluída com o ${targetAbbr}: você envia ${mineDesc} e recebe ${theirsDesc}.`;
-      c.news.push(summary);
       if (!c.tradeHistory) c.tradeHistory = [];
       c.tradeHistory.unshift({ year: c.year, targetAbbr, sent: mineDesc, received: theirsDesc });
       c.tradeHistory = c.tradeHistory.slice(0, 15);
