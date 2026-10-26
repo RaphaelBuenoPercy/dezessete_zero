@@ -323,7 +323,7 @@ function ResultsScreen({ career, onOpenTeam, onOpenPlayer }) {
             <button disabled={week >= maxWeek} onClick={() => { setWeek((w) => w + 1); setOpenIdx(null); }} className="px-2 py-1 rounded-md bg-white/5 disabled:opacity-30">▶</button>
           </div>
           {!seasonGames.length && <Card><div className="text-sm text-slate-400">Nenhum jogo simulado ainda nesta semana.</div></Card>}
-          <WeeklyRecapCard recap={buildWeeklyRecap(career.leagueTeams, seasonGames)} onOpenTeam={onOpenTeam} onOpenPlayer={onOpenPlayer} />
+          {!career.isArchive && <WeeklyRecapCard recap={buildWeeklyRecap(career.leagueTeams, seasonGames)} onOpenTeam={onOpenTeam} onOpenPlayer={onOpenPlayer} />}
           <div className="space-y-2">
             {seasonGames.map((g, i) => (
               <GameResultCard key={i} g={g} open={openIdx === i} onToggle={() => setOpenIdx(openIdx === i ? null : i)} onOpenTeam={onOpenTeam} onOpenPlayer={onOpenPlayer} />
@@ -690,4 +690,4 @@ function PressModal({ event, onChoose }) {
 // isn't on any team yet: no games/team info, just the scouting profile
 // and a big sign button.
 
-export { ScheduleScreen, ResultsScreen, GameScreen, PressModal, HonorsScreen };
+export { ScheduleScreen, ResultsScreen, GameScreen, PressModal, HonorsScreen, PlayoffPicture };
