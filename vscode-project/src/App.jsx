@@ -28,6 +28,8 @@ import { HubScreen } from "./screens/HubScreen.jsx";
 import { RosterScreen, DepthChartScreen, TacticsScreen, ContractsScreen } from "./screens/TeamManagementScreens.jsx";
 import { ScheduleScreen, ResultsScreen, GameScreen, PressModal, HonorsScreen } from "./screens/SeasonScreens.jsx";
 import { FreeAgencyScreen, FreeAgentDetailScreen, DraftScreen, ProspectDetailScreen, StatsScreen, TradeScreen } from "./screens/MarketScreens.jsx";
+import { snapshotLeaders, archiveSeason } from "./season/archive.js";
+import { HistoryScreen } from "./screens/HistoryScreen.jsx";
 
 // Current win/loss/tie streak for `abbr`, most recent game first — shared
 // by the press-conference context (win_streak/loss_streak flavor) and
@@ -449,6 +451,7 @@ export default function App() {
         c.news.push(`📖 Recorde de temporada! ${b.label}: ${b.playerName} (${b.teamAbbr}) com ${b.value}.`);
       });
 
+      const leadersSnap = snapshotLeaders(c.leagueTeams);
       const awards = computeSeasonAwards(c.leagueTeams, c.year);
       const rolloverNews = applyCareerRollover(c.leagueTeams, awards);
       c.news.push(...rolloverNews);
@@ -469,6 +472,8 @@ export default function App() {
       const myAwardWinner = [awards.mvp, awards.opoy, awards.dpoy, awards.oroy, awards.droy].some((a) => a?.t.abbr === c.teamAbbr);
       if (myAwardWinner) { myTeam.ownerConfidence = Math.min(100, myTeam.ownerConfidence + 5); myTeam.fanSupport = Math.min(100, myTeam.fanSupport + 5); }
       if (awards.coachOfYear?.abbr === c.teamAbbr) { myTeam.ownerConfidence = Math.min(100, myTeam.ownerConfidence + 8); c.news.push(`📋 Você foi reconhecido como o técnico do ano de ${c.year}!`); }
+
+      archiveSeason(c, leadersSnap);
 
       const { news: retirementNews, retirees } = retireAndRefreshLeague(c.leagueTeams, c.year + 1);
       c.news.push(...retirementNews.slice(0, 5));
