@@ -21,15 +21,17 @@ import { autoSortDepth } from "./season/depth.js";
 import { extensionAsk, processAIContracts, releaseToMarket } from "./season/contracts.js";
 import { computeSeasonAwards, applyCareerRollover } from "./season/legacy.js";
 import { snapshotLeaders, archiveSeason } from "./season/archive.js";
+import { ensureCoachingState } from "./engine/coachesGen.js";
+import { runCoachingCarousel, applyCoachDevelopment, hireCoach, fireCoach, renewCoach } from "./season/coachingCarousel.js";
 import { newCareerState, AI_TEND } from "./season/careerState.js";
 import { TopBar, BottomNav } from "./components/ui.jsx";
 import { MenuScreen, NewCareerScreen, FiredScreen } from "./screens/MenuScreens.jsx";
 import { TeamDetailScreen, PlayerDetailScreen } from "./screens/TeamAndPlayer.jsx";
 import { HubScreen } from "./screens/HubScreen.jsx";
-import { RosterScreen, DepthChartScreen, TacticsScreen, ContractsScreen } from "./screens/TeamManagementScreens.jsx";
+import { RosterScreen, DepthChartScreen, TacticsScreen, ContractsScreen, StaffScreen } from "./screens/TeamManagementScreens.jsx";
 import { ScheduleScreen, ResultsScreen, GameScreen, PressModal, HonorsScreen } from "./screens/SeasonScreens.jsx";
 import { HistoryScreen } from "./screens/HistoryScreen.jsx";
-import { FreeAgencyScreen, FreeAgentDetailScreen, DraftScreen, ProspectDetailScreen, StatsScreen, TradeScreen } from "./screens/MarketScreens.jsx";
+import { FreeAgencyScreen, FreeAgentDetailScreen, DraftScreen, ProspectDetailScreen, StatsScreen, TradeScreen, CoachMarketScreen } from "./screens/MarketScreens.jsx";
 
 // Current win/loss/tie streak for `abbr`, most recent game first — shared
 // by the press-conference context (win_streak/loss_streak flavor) and
@@ -128,9 +130,22 @@ export default function App() {
 
   function go(s) { setScreen(s); }
 
+  // ---- comissão técnica ----
+  function staffAction(fn) {
+    const c = structuredClone(career);
+    const r = fn(c);
+    if (r.ok) setCareer(c);
+    return r;
+  }
+  function onHireCoach(role, id) { return staffAction((c) => hireCoach(c, role, id, mulberry32(seedFromString(c.id + "-front-" + c.year + id)))); }
+  function onFireCoach(role) { return staffAction((c) => fireCoach(c, role)); }
+  function onRenewCoach(role) { return staffAction((c) => renewCoach(c, role)); }
+  function onDismissAlert(id) { setCareer((p) => ({ ...p, staffAlerts: (p.staffAlerts || []).filter((a) => a.id !== id) })); }
+
   function onNewCareer() { setScreen("newcareer"); }
   function onCreateCareer(teamAbbr, coachName) {
     const c = newCareerState(teamAbbr, coachName);
+    ensureCoachingState(c, mulberry32(seedFromString(c.id + "-staff")));
     setCareer(c);
     setScreen("hub");
   }
@@ -140,6 +155,7 @@ export default function App() {
       if (raw) {
         const loaded = JSON.parse(raw);
         upgradeCareerPlayers(loaded); // saves antigos (2 atributos) -> novos atributos, mantendo o OVR
+        ensureCoachingState(loaded, mulberry32(seedFromString(loaded.id + "-staff"))); // comissão técnica em saves antigos
         setCareer(loaded); setScreen("hub");
       }
     } catch (e) {}
@@ -443,6 +459,8 @@ export default function App() {
           });
           c.freeAgencyActivity = [...openingSignings, ...c.freeAgencyActivity].slice(0, 20);
         }
+        // Coaching carousel: times ruins demitem HCs e podem "roubar" coordenadores de times de sucesso.
+        c.news.push(...runCoachingCarousel(c, mulberry32(seedFromString(c.id + "-carousel-" + c.year))));
         sortAIDepth(c);
       }
       return c;
@@ -488,6 +506,7 @@ export default function App() {
 
       const { news: retirementNews, retirees } = retireAndRefreshLeague(c.leagueTeams, c.year + 1);
       c.news.push(...retirementNews.slice(0, 5));
+      c.news.push(...applyCoachDevelopment(c, mulberry32(seedFromString(c.id + "-mentor-" + c.year))));
       sortAIDepth(c);
       if (!c.hallOfFame) c.hallOfFame = [];
       retirees.filter((r) => r.legendary).forEach((r) => c.hallOfFame.push({ ...r, retiredYear: c.year }));
@@ -820,11 +839,13 @@ export default function App() {
     <div className="min-h-screen bg-[#0B1220] text-slate-100 font-sans">
       <TopBar team={myTeam} career={career} />
       <div className="px-4 pt-4 max-w-lg mx-auto">
-        {screen === "hub" && <HubScreen career={career} myTeam={myTeam} go={go} onPlayWeek={onHubAction} onSimPlayoffRound={onHubAction} onSimSeason={simSeason} onOpenTeam={openTeam} />}
+        {screen === "hub" && <HubScreen career={career} myTeam={myTeam} go={go} onPlayWeek={onHubAction} onSimPlayoffRound={onHubAction} onSimSeason={simSeason} onDismissAlert={onDismissAlert} onOpenTeam={openTeam} />}
         {screen === "roster" && <RosterScreen myTeam={myTeam} onOpenPlayer={(id) => openPlayer(id, myTeam.abbr)} />}
         {screen === "depth" && <DepthChartScreen myTeam={myTeam} onSwap={swapSlot} onAutoSort={autoSortDepthChart} />}
         {screen === "honors" && <HonorsScreen career={career} onBack={() => go("hub")} onOpenPlayer={openPlayer} />}
         {screen === "contracts" && <ContractsScreen myTeam={myTeam} onExtend={extendContract} onRelease={releaseExpiring} onBack={() => go("hub")} />}
+        {screen === "staff" && <StaffScreen career={career} myTeam={myTeam} go={go} onFire={onFireCoach} onRenew={onRenewCoach} />}
+        {screen === "coachmarket" && <CoachMarketScreen career={career} myTeam={myTeam} onHire={onHireCoach} go={go} />}
         {screen === "tactics" && <TacticsScreen myTeam={myTeam} tendencies={career.tendencies} onChange={(t) => setCareer((p) => ({ ...p, tendencies: t }))} />}
         {screen === "schedule" && <ScheduleScreen career={career} myTeam={myTeam} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
         {screen === "results" && <ResultsScreen career={career} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}

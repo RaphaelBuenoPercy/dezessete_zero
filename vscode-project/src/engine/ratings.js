@@ -6,9 +6,13 @@
 // pass rush, defesa de corrida...). `attr()` cai para o OVR quando o atributo
 // não existe (ex.: save antigo ainda não migrado), então nada vira NaN.
 
-function attr(p, key, fallback) {
+// Valor do atributo já com o bônus temporário da comissão técnica (p.fx), ou null se não existir.
+function rawAttr(p, key) {
   const v = p?.attrs?.[key];
-  return v ?? fallback ?? p?.ovr ?? 60;
+  return v == null ? null : Math.min(99, v + (p.fx?.[key] || 0));
+}
+function attr(p, key, fallback) {
+  return rawAttr(p, key) ?? fallback ?? p?.ovr ?? 60;
 }
 
 function slotPlayer(roster, key) { return roster.find((p) => p.slot === key) || roster.find((p) => p.pos === key); }
@@ -28,7 +32,7 @@ function posAvg(roster, pos, attrKey) {
   let sum = 0, wsum = 0;
   players.forEach((p) => {
     const w = p.injuredWeeks > 0 ? 0.5 : 1;
-    const val = typeof attrKey === "function" ? attrKey(p) : attrKey ? (p.attrs?.[attrKey] ?? p.ovr) : p.ovr;
+    const val = typeof attrKey === "function" ? attrKey(p) : attrKey ? (rawAttr(p, attrKey) ?? p.ovr) : p.ovr;
     sum += val * w; wsum += w;
   });
   return sum / wsum;
@@ -43,8 +47,8 @@ function coverRating(p) { return (manCover(p) + zoneCover(p)) / 2; }
 
 // Movimentos de pass rush. Safeties não têm FMV/PMV, então usam uma nota derivada
 // (finesse ~ velocidade/aceleração; power ~ tackle/perseguição, um pouco menor).
-function finesseMove(p) { return p?.attrs?.FMV ?? (attr(p, "SPD") + attr(p, "ACC")) / 2; }
-function powerMove(p) { return p?.attrs?.PMV ?? ((attr(p, "TKL") + attr(p, "PUR")) / 2) * 0.92; }
+function finesseMove(p) { return rawAttr(p, "FMV") ?? (attr(p, "SPD") + attr(p, "ACC")) / 2; }
+function powerMove(p) { return rawAttr(p, "PMV") ?? ((attr(p, "TKL") + attr(p, "PUR")) / 2) * 0.92; }
 function rushRating(p) {
   const f = finesseMove(p), w = powerMove(p);
   return Math.max(f, w) * 0.6 + Math.min(f, w) * 0.4;
@@ -60,7 +64,7 @@ function runDefRating(p) {
 
 // Recebedor: separação. RB/TE sem RTE usam velocidade/aceleração/recepção.
 function routeSkill(p) {
-  return p?.attrs?.RTE ?? (attr(p, "SPD") + attr(p, "ACC") + attr(p, "CTH")) / 3;
+  return rawAttr(p, "RTE") ?? (attr(p, "SPD") + attr(p, "ACC") + attr(p, "CTH")) / 3;
 }
 
 // RB em corrida: visão, força, aceleração e velocidade.
@@ -80,7 +84,7 @@ function runBlockRating(p, outside) {
 // por agilidade, power (PMV) por força. RB/TE (sem AGI/STR) usam só PBK.
 function passBlockRating(p, move) {
   const base = attr(p, "PBK");
-  const aux = move === "FMV" ? p?.attrs?.AGI : p?.attrs?.STR;
+  const aux = move === "FMV" ? rawAttr(p, "AGI") : rawAttr(p, "STR");
   return aux != null ? base * 0.75 + aux * 0.25 : base;
 }
 
@@ -103,11 +107,11 @@ function defenseRating(roster, type) {
 function teamOverall(roster) {
   const w = { QB: 3, RB: 1.4, WR: 1.2, TE: 0.8, OL: 1.6, DL: 1.6, LB: 1.2, CB: 1.3, S: 1.1, K: 0.4, P: 0.3 };
   let sum = 0, tot = 0;
-  roster.forEach((p) => { const wt = w[p.pos] || 0.5; sum += p.ovr * wt; tot += wt; });
+  roster.forEach((p) => { const wt = w[p.pos] || 0.5; sum += (p.ovr + (p.fxOvr || 0)) * wt; tot += wt; });
   return sum / tot;
 }
 
 
-export { attr, slotPlayer, activePlayer, posAvg, manCover, zoneCover, coverRating,
+export { attr, rawAttr, slotPlayer, activePlayer, posAvg, manCover, zoneCover, coverRating,
   finesseMove, powerMove, rushRating, runDefRating, routeSkill, rbRunScore,
   runBlockRating, passBlockRating, offenseRating, defenseRating, teamOverall };

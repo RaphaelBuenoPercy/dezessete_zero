@@ -250,6 +250,7 @@ const NAV = [
   { key: "roster", label: "Elenco", icon: "👥" },
   { key: "depth", label: "Escalação", icon: "📋" },
   { key: "tactics", label: "Táticas", icon: "🎯" },
+  { key: "staff", label: "Comissão", icon: "🧢" },
   { key: "schedule", label: "Classificação", icon: "📅" },
   { key: "results", label: "Resultados", icon: "🏟️" },
   { key: "trade", label: "Trocas", icon: "🔄" },
