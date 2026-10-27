@@ -17,15 +17,101 @@ function tierRange(tier) {
   return [48, 65]; // bench
 }
 
-function makePlayer(rng, pos, tier, name) {
+// ============================================================
+// OVR BOTTOM-UP: o OVR é a média ponderada dos atributos da posição.
+// Pesos em % (cada posição soma 100). Chave ausente no jogador é ignorada
+// e os demais pesos são renormalizados.
+// ============================================================
+const POSITION_WEIGHTS = {
+  QB: { THP: 10, STA: 15, MTA: 20, DTA: 15, AWR: 20, MOB: 5, TUP: 15 },
+  RB: { SPD: 22, ACC: 18, POW: 20, VIS: 20, CTH: 10, PBK: 10 },
+  WR: { SPD: 20, ACC: 15, CTH: 22, RTE: 20, CIT: 15, RBK: 8 },
+  TE: { CTH: 18, RBK: 15, STR: 10, RTE: 15, CIT: 14, PBK: 10, ACC: 8, SPD: 10 },
+  OL: { PBK: 30, RBK: 30, STR: 15, AWR: 15, AGI: 10 },
+  DL: { PMV: 20, FMV: 20, BSH: 20, STR: 15, TKL: 15, AWR: 10 },
+  LB: { TKL: 18, PRC: 16, ZCV: 12, BSH: 10, SPD: 10, MCV: 10, FMV: 6, PMV: 6, ACC: 12 },
+  CB: { MCV: 22, ZCV: 20, SPD: 18, ACC: 12, PRS: 10, STR: 6, AWR: 12 },
+  S: { ZCV: 22, TKL: 14, PRC: 18, SPD: 12, PUR: 12, MCV: 12, ACC: 10 },
+  K: { KPW: 40, KAC: 45, CLT: 15 },
+  P: { KPW: 45, KAC: 40, TRK: 15 },
+};
+
+function computeOvr(pos, attrs) {
+  const w = POSITION_WEIGHTS[pos];
+  if (!w || !attrs) return 60;
+  let sum = 0, tot = 0;
+  Object.entries(w).forEach(([k, pct]) => {
+    if (attrs[k] != null) { sum += attrs[k] * pct; tot += pct; }
+  });
+  return tot ? clamp(Math.round(sum / tot), 40, 99) : 60;
+}
+// Chame depois de qualquer mudança em p.attrs (progressão, lesão grave, etc.).
+function recalcOvr(p) { p.ovr = computeOvr(p.pos, p.attrs); return p; }
+
+const ATTR_SPREAD = 8;
+
+// Sorteia os atributos de uma posição. Cada atributo sai de um "talento" do
+// tier (faixa de tierRange) ± ATTR_SPREAD — o talento é compartilhado para os
+// atributos de um mesmo jogador se correlacionarem (senão a média dos atributos
+// colapsaria para o meio da faixa e não existiriam estrelas). Depois 1 atributo
+// recebe um bônus e 1 uma penalidade (perfil/arquétipo do jogador).
+//   targetOvr: se informado, ajusta os atributos livres até o OVR calculado bater
+//   centers:   { ATTR: valor } centro específico por atributo (usado na migração)
+//   overrides: { ATTR: valor } atributos fixos (não são alterados)
+function rollAttrs(rng, pos, { tier = "starter", targetOvr = null, centers = {}, overrides = {} } = {}) {
+  const keys = SUB_ATTRS[pos];
   const [lo, hi] = tierRange(tier);
-  const ovr = randInt(rng, lo, hi);
-  const [a1, a2] = SUB_ATTRS[pos];
-  const spread = 8;
-  const attrs = {
-    [a1]: clamp(ovr + randInt(rng, -spread, spread), 35, 99),
-    [a2]: clamp(ovr + randInt(rng, -spread, spread), 35, 99),
-  };
+  const talent = targetOvr ?? randInt(rng, lo, hi);
+  const attrs = {};
+  keys.forEach((k) => {
+    attrs[k] = overrides[k] ?? clamp((centers[k] ?? talent) + randInt(rng, -ATTR_SPREAD, ATTR_SPREAD), 35, 99);
+  });
+  const free = keys.filter((k) => overrides[k] == null);
+  if (free.length >= 3) {
+    const strong = pick(rng, free);
+    const weak = pick(rng, free.filter((k) => k !== strong));
+    attrs[strong] = clamp(attrs[strong] + randInt(rng, 3, 8), 35, 99);
+    attrs[weak] = clamp(attrs[weak] - randInt(rng, 3, 8), 35, 99);
+  }
+  if (targetOvr != null && free.length) {
+    for (let i = 0; i < 4; i++) {
+      const delta = targetOvr - computeOvr(pos, attrs);
+      if (delta === 0) break;
+      free.forEach((k) => { attrs[k] = clamp(attrs[k] + delta, 35, 99); });
+    }
+  }
+  return attrs;
+}
+
+// Nomes antigos (2 atributos por posição) -> novos atributos que eles "alimentam".
+// Usado para migrar saves antigos e para ler customRosters.js escritos no formato velho.
+const LEGACY_ATTR_MAP = {
+  QB: { ARM: ["THP"], ACC: ["STA", "MTA", "DTA", "TUP"] },
+  RB: { SPD: ["SPD", "ACC"], POW: ["POW"] },
+  WR: { SPD: ["SPD", "ACC"], HND: ["CTH", "CIT"] },
+  TE: { HND: ["CTH", "CIT"], BLK: ["RBK", "PBK", "STR"] },
+  OL: { RBK: ["RBK", "STR"], PBK: ["PBK"] },
+  DL: { RSH: ["PMV", "FMV"], RUN: ["BSH", "TKL", "STR"] },
+  LB: { COV: ["ZCV", "MCV"], RUN: ["TKL", "BSH"] },
+  CB: { COV: ["MCV", "ZCV"], SPD: ["SPD", "ACC"] },
+  S: { COV: ["ZCV", "MCV"], TKL: ["TKL", "PUR"] },
+  K: { POW: ["KPW"], ACC: ["KAC"] },
+  P: { POW: ["KPW"], ACC: ["KAC"] },
+};
+// Separa um objeto attrs em: chaves válidas hoje (overrides) e chaves antigas (centers).
+function splitAttrs(pos, given = {}) {
+  const valid = new Set(SUB_ATTRS[pos] || []);
+  const overrides = {}, centers = {};
+  Object.entries(given).forEach(([k, v]) => {
+    if (valid.has(k)) overrides[k] = v;
+    else (LEGACY_ATTR_MAP[pos]?.[k] || []).forEach((nk) => { centers[nk] = v; });
+  });
+  return { overrides, centers };
+}
+
+function makePlayer(rng, pos, tier, name) {
+  const attrs = rollAttrs(rng, pos, { tier });
+  const ovr = computeOvr(pos, attrs);
   const age = tier === "star" ? randInt(rng, 24, 31) : tier === "bench" ? randInt(rng, 21, 26) : randInt(rng, 22, 32);
   const years = randInt(rng, 1, 4);
   const salary = Math.round((ovr - 45) * (ovr - 45) / 90 * 10) / 10 + (tier === "star" ? randInt(rng,2,8) : 0);
@@ -34,34 +120,60 @@ function makePlayer(rng, pos, tier, name) {
     dev: tier === "star" || tier === "bench" ? (age < 26 ? "rising" : age > 30 ? "declining" : "steady") : "steady",
     injuredWeeks: 0, seasonStats: {}, careerStats: {},
     morale: 65, accolades: [], seasonsPlayed: 0, injuryHistory: [], rookieYear: null,
-    nickname: generateNickname(rng, pos, attrs, [a1, a2]),
+    nickname: generateNickname(rng, pos, attrs, SUB_ATTRS[pos]),
   };
 }
 
 // Builds a player from a CUSTOM_ROSTERS entry, filling in anything the
-// user didn't specify (overall, attrs, age, name...) so partial overrides
+// user didn't specify (attrs, age, name...) so partial overrides
 // (e.g. just naming the starting QB) work fine alongside the rest of the
-// auto-generated roster.
+// auto-generated roster. `cp.attrs` aceita os atributos novos E os antigos
+// (ARM, HND...). `cp.ovr`, se vier, é a meta: os atributos não fixados são
+// ajustados até o OVR calculado bater; se você fixar atributos demais, o OVR
+// final é o calculado a partir deles.
 function makeCustomPlayer(rng, slot, cp) {
   const pos = cp.pos || slot.pos;
   const tier = cp.tier || slot.tier;
-  const ovr = cp.ovr ?? randInt(rng, ...tierRange(tier));
-  const subAttrs = SUB_ATTRS[pos] || SUB_ATTRS[slot.pos] || ["ARM", "ACC"];
-  const [a1, a2] = subAttrs;
-  const attrs = {
-    [a1]: cp.attrs?.[a1] ?? clamp(ovr + randInt(rng, -8, 8), 35, 99),
-    [a2]: cp.attrs?.[a2] ?? clamp(ovr + randInt(rng, -8, 8), 35, 99),
-  };
+  const safePos = SUB_ATTRS[pos] ? pos : slot.pos;
+  const { overrides, centers } = splitAttrs(safePos, cp.attrs);
+  const attrs = rollAttrs(rng, safePos, { tier, targetOvr: cp.ovr ?? null, centers, overrides });
+  const ovr = computeOvr(safePos, attrs);
   const age = cp.age ?? randInt(rng, 22, 32);
   const years = cp.years ?? randInt(rng, 1, 4);
   const salary = cp.salary ?? Math.max(0.8, Math.round((ovr - 45) * (ovr - 45) / 90 * 10) / 10);
   return {
-    id: PID++, name: cp.name || makeName(rng), pos, ovr, attrs, age, years, salary,
+    id: PID++, name: cp.name || makeName(rng), pos: safePos, ovr, attrs, age, years, salary,
     dev: cp.dev || "steady",
     injuredWeeks: 0, seasonStats: {}, careerStats: {}, slot: slot.key,
     morale: 65, accolades: [], seasonsPlayed: 0, injuryHistory: [], rookieYear: null,
-    nickname: cp.nickname ?? generateNickname(rng, pos, attrs, [a1, a2]),
+    nickname: cp.nickname ?? generateNickname(rng, safePos, attrs, SUB_ATTRS[safePos]),
   };
+}
+
+// ---------- migração de saves antigos ----------
+// Converte um jogador do formato antigo (2 atributos) para o novo, preservando o OVR.
+function upgradePlayerAttrs(p) {
+  const keys = SUB_ATTRS[p.pos];
+  if (!keys || !p.attrs || keys.every((k) => p.attrs[k] != null)) return false;
+  const rng = mulberry32(seedFromString("upgrade-" + p.id));
+  const { overrides, centers } = splitAttrs(p.pos, p.attrs);
+  p.attrs = rollAttrs(rng, p.pos, { targetOvr: p.ovr, centers, overrides });
+  return true;
+}
+// Percorre o career inteiro (elencos, free agents, draft...) e migra todo jogador antigo.
+function upgradeCareerPlayers(career) {
+  let n = 0;
+  const seen = new Set();
+  const skip = new Set(["seasonArchive", "news", "schedule"]);
+  const walk = (o, d) => {
+    if (!o || typeof o !== "object" || d > 6 || seen.has(o)) return;
+    seen.add(o);
+    if (Array.isArray(o)) { o.forEach((x) => walk(x, d + 1)); return; }
+    if (o.attrs && o.pos && typeof o.ovr === "number") { if (upgradePlayerAttrs(o)) n++; return; }
+    Object.keys(o).forEach((k) => { if (!skip.has(k)) walk(o[k], d + 1); });
+  };
+  walk(career, 0);
+  return n;
 }
 
 function buildRoster(team) {
@@ -247,16 +359,25 @@ function playerValue(p) {
 }
 function pickValue(round) { return [0, 30, 18, 11, 7, 4.5, 3, 2][round] || 1; }
 
+// Atributos físicos caem mais rápido depois dos 30; os mentais seguram (ou até sobem).
+const PHYSICAL_ATTRS = new Set(["SPD", "ACC", "AGI", "STR", "MOB", "THP", "POW", "PMV", "FMV", "PUR", "KPW"]);
 function agePlayer(p, rng) {
+  upgradePlayerAttrs(p); // segurança: save antigo que ainda não foi migrado
   const decline = p.age > 30 ? -randInt(rng, 1, 3) : p.age > 27 ? randInt(rng, -1, 1) : randInt(rng, 0, 3);
-  p.ovr = clamp(p.ovr + decline, 40, 99);
-  Object.keys(p.attrs).forEach((k) => { p.attrs[k] = clamp(p.attrs[k] + decline, 30, 99); });
+  Object.keys(p.attrs).forEach((k) => {
+    let d = decline;
+    if (p.age > 29) d += PHYSICAL_ATTRS.has(k) ? -randInt(rng, 0, 1) : randInt(rng, 0, 1);
+    else d += randInt(rng, -1, 1);
+    p.attrs[k] = clamp(p.attrs[k] + d, 30, 99);
+  });
+  recalcOvr(p);
   p.age += 1;
   p.years = Math.max(0, p.years - 1);
   return p;
 }
 
 
-export { tierRange, makePlayer, makeCustomPlayer, buildRoster, normalizeSalaries,
+export { POSITION_WEIGHTS, computeOvr, recalcOvr, rollAttrs, upgradePlayerAttrs, upgradeCareerPlayers,
+  tierRange, makePlayer, makeCustomPlayer, buildRoster, normalizeSalaries,
   buildLeague, circleSchedule, buildSchedule, generateFreeAgents, convertToFreeAgent, generateDraftClass,
   capUsed, playerValue, pickValue, agePlayer };
