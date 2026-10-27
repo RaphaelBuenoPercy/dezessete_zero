@@ -1,6 +1,6 @@
 import React from "react";
 import { clamp } from "../lib/rng.js";
-import { SUB_ATTRS } from "../data/rosterSlots.js";
+import { SUB_ATTRS, ATTR_LABELS } from "../data/rosterSlots.js";
 import { TEAM_META } from "../data/teams.js";
 import { moraleLabel } from "../season/morale.js";
 
@@ -193,15 +193,19 @@ function OvrBadge({ ovr, size = 40 }) {
   );
 }
 
-// Compact pair of attribute bars for a player, reused wherever a player
-// needs more texture than a plain OVR number (FA, Draft board, Trade Center).
-function AttrBars({ pos, attrs }) {
-  const keys = SUB_ATTRS[pos] || [];
-  if (keys.length !== 2 || !attrs) return null;
+// Grid de barras com TODOS os atributos do jogador (2 colunas até 4 atributos,
+// 3 colunas acima disso). `top` mostra só os N maiores (útil em cards compactos
+// de Free Agency/Draft/Trocas). O título (toque/hover) traz o nome completo.
+function AttrBars({ pos, attrs, top }) {
+  if (!attrs) return null;
+  let keys = (SUB_ATTRS[pos] || Object.keys(attrs)).filter((k) => attrs[k] != null);
+  if (!keys.length) return null;
+  if (top) keys = [...keys].sort((a, b) => attrs[b] - attrs[a]).slice(0, top);
+  const cols = keys.length <= 4 ? "grid-cols-2" : "grid-cols-3";
   return (
-    <div className="grid grid-cols-2 gap-2 mt-1.5">
+    <div className={`grid ${cols} gap-x-3 gap-y-1.5 mt-1.5`}>
       {keys.map((k) => (
-        <div key={k}>
+        <div key={k} title={ATTR_LABELS[k] || k}>
           <div className="flex justify-between text-[10px] text-slate-500 mb-0.5"><span>{k}</span><span className="tabular-nums">{attrs[k]}</span></div>
           <Bar value={attrs[k]} max={99} color="#38bdf8" />
         </div>

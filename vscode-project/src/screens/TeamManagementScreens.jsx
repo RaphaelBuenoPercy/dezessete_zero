@@ -236,7 +236,7 @@ function TacticalAdvice({ myTeam }) {
   if (rb1 && rb2 && rb2.attrs.SPD >= rb1.attrs.SPD - 3) tips.push(`${rb2.name} tem velocidade parecida com a de ${rb1.name} — dá pra dividir mais as corridas sem perder muito.`);
   if (rb1 && rb1.age >= 29) tips.push(`${rb1.name} já tem ${rb1.age} anos — mais rotação com o RB2 ajuda a poupar desgaste ao longo da temporada.`);
   if (wr1 && wr3 && wr1.ovr - wr3.ovr >= 15) tips.push(`${wr3.name} (WR3) é bem mais fraco que ${wr1.name} — talvez valha reduzir o 10 personnel.`);
-  if (te1 && te1.attrs.BLK >= 78) tips.push(`${te1.name} bloqueia muito bem — 12 personnel tende a render bem com ele em campo.`);
+  if (te1 && te1.attrs.RBK >= 78) tips.push(`${te1.name} bloqueia muito bem — 12 personnel tende a render bem com ele em campo.`);
   if (!tips.length) return null;
   return (
     <Card className="mb-3">

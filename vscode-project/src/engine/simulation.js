@@ -1,5 +1,9 @@
 import { pick, randInt, clamp } from "../lib/rng.js";
-import { slotPlayer, activePlayer, offenseRating, defenseRating, teamOverall } from "./ratings.js";
+import {
+  attr, slotPlayer, activePlayer, offenseRating, defenseRating, teamOverall,
+  manCover, zoneCover, routeSkill, finesseMove, powerMove, runDefRating,
+  runBlockRating, passBlockRating,
+} from "./ratings.js";
 
 // The play-by-play game engine (simGameDetailed) plus the lighter
 // statistical approximation used for the 15 games the user isn't
@@ -20,7 +24,7 @@ function statAdd(player, key, val) {
 // game's tackle leader (~12-14), instead of tackles spreading flat across
 // the whole defense.
 function tackleWeight(p) {
-  const base = (p.attrs?.TKL || p.attrs?.RUN || p.attrs?.COV || p.ovr || 60) / 70;
+  const base = attr(p, "TKL") / 70;
   let posMult = p.pos === "LB" ? 2.0 : p.pos === "S" ? 1.5 : p.pos === "CB" ? 0.15 : 0.65; // DL default
   if (p.slot === "LB1" || p.slot === "S1") posMult *= 2.6;
   return base * posMult;
@@ -122,11 +126,13 @@ const RUN_GAPS = [
   { dir: "direita", label: "por fora à direita", blockerSlot: "RT" },
 ];
 
-function pickRouteConcept(rng, down, distance, tendO, excludeRB, personnel) {
+// excludeSlot: slot que fica para bloquear (ex.: "RB1" ou "TE1"); `true` = "RB1" (compat.)
+function pickRouteConcept(rng, down, distance, tendO, excludeSlot, personnel) {
   const aggressive = tendO?.aggressive ?? 0.5;
   const info = PERSONNEL_INFO[personnel] || PERSONNEL_INFO["11"];
   let pool = ROUTE_CONCEPTS;
-  if (excludeRB) pool = pool.filter((c) => c.targetSlot !== "RB1");
+  const exclude = excludeSlot === true ? "RB1" : excludeSlot;
+  if (exclude) pool = pool.filter((c) => c.targetSlot !== exclude);
   if (!info.hasTE) pool = pool.filter((c) => c.targetSlot !== "TE1");
   if (!info.hasSlot) pool = pool.filter((c) => c.targetSlot !== "WR3");
   if (!pool.length) pool = ROUTE_CONCEPTS.filter((c) => c.targetSlot === "WR1" || c.targetSlot === "WR2");
@@ -146,6 +152,18 @@ function pickRouteConcept(rng, down, distance, tendO, excludeRB, personnel) {
 // on passing downs) adds a 4th rush lane picked up by the RB instead of a
 // lineman — backs are much weaker blockers, so blitzes are a real source of
 // pressure rather than just a coin flip.
+// Quanto o RB / TE rende segurando um blitzer (multiplica o PBK dele; a OL não tem penalidade).
+const PICKUP_PENALTY = { RB: 0.78, TE: 0.86 };
+// QB móvel escapa de parte dos sacks (vira hurry). Máximo de sacks evitados.
+const MOB_ESCAPE_MAX = 0.2;
+
+// Cada confronto sorteia o movimento do rusher: finesse (FMV) ou power (PMV),
+// com viés para o movimento em que ele é melhor.
+function pickMove(rng, rusher) {
+  const f = finesseMove(rusher), w = powerMove(rusher);
+  return rng() < clamp(0.5 + (f - w) / 50, 0.15, 0.85) ? "FMV" : "PMV";
+}
+
 function passProtection(offRoster, defRoster, tendD, down, distance, personnel, empty, rng) {
   const rt = slotPlayer(offRoster, "RT"), lt = slotPlayer(offRoster, "LT");
   const interiorOL = [slotPlayer(offRoster, "LG"), slotPlayer(offRoster, "C"), slotPlayer(offRoster, "RG")].filter(Boolean);
@@ -157,38 +175,54 @@ function passProtection(offRoster, defRoster, tendD, down, distance, personnel, 
     { blocker: pick(rng, interiorOL.length ? interiorOL : [rt]), rusher: interiorDL.length ? pick(rng, interiorDL) : de1, edge: "por dentro" },
   ].filter((m) => m.blocker && m.rusher);
 
-  let rbBlocking = false, blitzer = null;
+  let rbBlocking = false, teBlocking = false, blitzer = null;
   const sam = activePlayer(defRoster, "LB2"), will = activePlayer(defRoster, "LB3");
+  const safeties = [activePlayer(defRoster, "S1"), activePlayer(defRoster, "S2")].filter(Boolean);
   const aggressive = tendD?.aggressive ?? 0.5;
   const blitzPickupMult = PERSONNEL_INFO[personnel]?.blitzPickupMult ?? 1;
   const blitzChance = clamp((0.13 + (aggressive - 0.5) * 0.35 + (down >= 3 && distance > 6 ? 0.08 : 0)) * blitzPickupMult, 0.05, 0.46);
   if ((sam || will) && rng() < blitzChance) {
-    blitzer = pick(rng, [sam, will].filter(Boolean));
-    const rb = slotPlayer(offRoster, "RB1");
-    if (rb && blitzer && !empty) {
-      rbBlocking = true;
-      matchups.push({ blocker: rb, rusher: blitzer, edge: `blitz do ${blitzer.slot === "LB2" ? "SAM" : "WILL"}`, blockerAttr: "POW", blockerPenalty: 0.72 });
+    // ~1 em cada 5 blitz vem de um safety (usa finesse/power derivados de SPD/ACC e TKL/PUR)
+    blitzer = safeties.length && rng() < 0.2 ? pick(rng, safeties) : pick(rng, [sam, will].filter(Boolean));
+    const label = blitzer.slot === "LB2" ? "SAM" : blitzer.slot === "LB3" ? "WILL" : "safety";
+    const rb = slotPlayer(offRoster, "RB1"), te = slotPlayer(offRoster, "TE1");
+    if (blitzer && !empty) {
+      // Em 12/21 personnel o TE às vezes fica para ajudar na proteção no lugar do RB.
+      const teStays = !!(te && PERSONNEL_INFO[personnel]?.hasTE && (personnel === "12" || personnel === "21") && rng() < 0.45);
+      const picker = teStays ? te : rb;
+      if (picker) {
+        if (teStays) teBlocking = true; else rbBlocking = true;
+        matchups.push({ blocker: picker, rusher: blitzer, edge: `blitz do ${label}`, blockerPenalty: teStays ? PICKUP_PENALTY.TE : PICKUP_PENALTY.RB });
+      }
     }
   }
-  if (!matchups.length) return { tier: "clean", rbBlocking };
+  const covered = rbBlocking || teBlocking;
+  if (!matchups.length) return { tier: "clean", rbBlocking, teBlocking, blitzer };
 
-  let worst = matchups[0], worstDiff = -999;
+  let worst = matchups[0], worstDiff = -999, worstMove = "PMV";
   matchups.forEach((m) => {
-    const blockRating = (m.blockerAttr ? (m.blocker.attrs[m.blockerAttr] || m.blocker.ovr) : (m.blocker.attrs.PBK || m.blocker.ovr)) * (m.blockerPenalty || 1);
-    const diff = (m.rusher.attrs.RSH || m.rusher.ovr) - blockRating + randInt(rng, -14, 14);
-    if (diff > worstDiff) { worstDiff = diff; worst = m; }
+    const move = pickMove(rng, m.rusher);
+    const rushRating = move === "FMV" ? finesseMove(m.rusher) : powerMove(m.rusher);
+    const blockRating = passBlockRating(m.blocker, move) * (m.blockerPenalty || 1);
+    const diff = rushRating - blockRating + randInt(rng, -14, 14);
+    if (diff > worstDiff) { worstDiff = diff; worst = m; worstMove = move; }
   });
   // An unblocked blitz in an empty backfield always gets home — no lineman
   // extra to help, no RB staying in to chip.
-  const unblockedBlitz = empty && blitzer && !rbBlocking;
+  const unblockedBlitz = empty && blitzer && !covered;
   const effDiff = unblockedBlitz ? worstDiff + 16 : worstDiff;
   const pressureChance = clamp((effDiff - 6) / 55, 0.03, 0.42);
-  if (rng() > pressureChance) return { tier: "clean", rbBlocking };
+  if (rng() > pressureChance) return { tier: "clean", rbBlocking, teBlocking, blitzer };
   const severity = clamp(effDiff / 30, 0, 1);
   const sackChance = 0.05 + severity * 0.15, hitChance = 0.18 + severity * 0.14;
   const roll = rng();
-  const tier = roll < sackChance ? "sack" : roll < sackChance + hitChance ? "hit" : "hurry";
-  return { tier, rusher: unblockedBlitz ? blitzer : worst.rusher, blocker: worst.blocker, edge: unblockedBlitz ? "blitz sem bloqueio" : worst.edge, rbBlocking, blitz: !!blitzer };
+  let tier = roll < sackChance ? "sack" : roll < sackChance + hitChance ? "hit" : "hurry";
+  // QB móvel (MOB) escapa de parte dos sacks: vira apenas uma pressão.
+  if (tier === "sack") {
+    const qb = activePlayer(offRoster, "QB1");
+    if (qb && rng() < clamp((attr(qb, "MOB") - 65) / 200, 0, MOB_ESCAPE_MAX)) tier = "hurry";
+  }
+  return { tier, rusher: unblockedBlitz ? blitzer : worst.rusher, blocker: worst.blocker, edge: unblockedBlitz ? "blitz sem bloqueio" : worst.edge, rbBlocking, teBlocking, blitz: !!blitzer, blitzer, move: worstMove };
 }
 
 // Pre-snap motion: sending a receiver across the formation before the snap
@@ -197,11 +231,11 @@ function passProtection(offRoster, defRoster, tendD, down, distance, personnel, 
 // smaller against a disciplined safety who doesn't bite on it).
 function preSnapRead(offRoster, defRoster, rng) {
   const qb = activePlayer(offRoster, "QB1");
-  const motionChance = clamp(0.32 + (qb.attrs.ACC - 75) * 0.002, 0.15, 0.55);
+  const motionChance = clamp(0.32 + (attr(qb, "AWR") - 75) * 0.002, 0.15, 0.55);
   if (rng() > motionChance) return { motion: false, readBonus: 0 };
   const s1 = activePlayer(defRoster, "S1");
-  const disguiseSkill = s1?.attrs.COV || s1?.ovr || 70;
-  const readBonus = clamp((qb.attrs.ACC - disguiseSkill) / 260, -0.05, 0.06);
+  const disguiseSkill = s1 ? attr(s1, "PRC") : 70;
+  const readBonus = clamp((attr(qb, "AWR") - disguiseSkill) / 260, -0.05, 0.06);
   return { motion: true, readBonus };
 }
 
@@ -231,6 +265,21 @@ function pickPersonnel(rng, tendO) {
 
 function fieldSpot(offAbbr, ballOn) {
   return ballOn <= 50 ? `${offAbbr} ${ballOn}` : `adv ${100 - ballOn}`;
+}
+
+// Qual atributo de precisão do QB vale para cada profundidade de rota.
+const QB_ACC_BY_DEPTH = { short: "STA", medium: "MTA", deep: "DTA" };
+
+// Defesa em man ou zone neste lance? CBs jogam mais man; LBs e safeties mais zone;
+// rotas longas pedem mais shell/zone; táticas agressivas aumentam o man.
+// (Se um dia existir um slider de tática de cobertura, é só somar aqui.)
+function coverageType(rng, defender, concept, tendD) {
+  let man = 0.38 + ((tendD?.aggressive ?? 0.5) - 0.5) * 0.4;
+  if (defender.pos === "CB") man += 0.2;
+  else if (defender.pos === "LB") man -= 0.08;
+  if (concept.depth === "deep") man -= 0.1;
+  else if (concept.depth === "short") man += 0.05;
+  return rng() < clamp(man, 0.1, 0.85) ? "man" : "zone";
 }
 
 function simPlay(offAbbr, defAbbr, offRoster, defRoster, down, distance, ballOn, tendO, tendD, rng) {
@@ -274,13 +323,25 @@ function simPlay(offAbbr, defAbbr, offRoster, defRoster, down, distance, ballOn,
     }
 
     const preSnap = preSnapRead(offRoster, defRoster, rng);
-    const concept = pickRouteConcept(rng, down, distance, tendO, prot.rbBlocking, personnel);
+    const concept = pickRouteConcept(rng, down, distance, tendO, prot.rbBlocking ? "RB1" : prot.teBlocking ? "TE1" : false, personnel);
     const target = activePlayer(offRoster, concept.targetSlot);
-    const defender = activePlayer(defRoster, concept.defenderSlot) || pick(rng, secondary);
+    let defender = activePlayer(defRoster, concept.defenderSlot) || pick(rng, secondary);
+    // quem está blitzando não cobre: outro defensor da secundária assume o recebedor
+    if (prot.blitzer && defender.id === prot.blitzer.id) {
+      const alt = secondary.filter((p) => p.id !== defender.id);
+      if (alt.length) defender = pick(rng, alt);
+    }
     const oRate = offenseRating(offRoster, "pass"), dRate = defenseRating(defRoster, "pass");
-    const matchupDiff = ((target.attrs.HND || target.attrs.SPD || target.ovr) - (defender.attrs.COV || defender.ovr)) / 10;
+    // O defensor usa MCV (man) ou ZCV (zone) contra a separação (RTE) do recebedor.
+    const coverage = coverageType(rng, defender, concept, tendD);
+    let cover = coverage === "man" ? manCover(defender) : zoneCover(defender);
+    if (coverage === "man" && defender.pos === "CB" && concept.depth === "short") cover += (attr(defender, "PRS") - 70) * 0.15; // press nas rotas curtas
+    const catchSkill = attr(target, coverage === "man" ? "CIT" : "CTH"); // man = pega sob marcação; zone = mãos
+    const matchupDiff = (routeSkill(target) - cover) / 10;
     const diff = (oRate - dRate) / 10 + matchupDiff * 0.3;
-    let completeChance = clamp(concept.baseComplete + diff * 0.03 + (qb.attrs.ACC - 75) * 0.003 + preSnap.readBonus, 0.28, 0.9);
+    // Precisão do QB depende da profundidade da rota; sob pressão vale o TUP.
+    const qbAcc = attr(qb, hurried ? "TUP" : QB_ACC_BY_DEPTH[concept.depth] || "MTA");
+    let completeChance = clamp(concept.baseComplete + diff * 0.03 + (qbAcc - 75) * 0.003 + (catchSkill - 75) * 0.001 + preSnap.readBonus, 0.28, 0.9);
     if (hurried) completeChance -= prot.tier === "hit" ? 0.22 : 0.12;
     completeChance = clamp(completeChance, 0.15, 0.9);
     const motionTag = preSnap.motion ? " após motion pré-snap" : "";
@@ -292,7 +353,7 @@ function simPlay(offAbbr, defAbbr, offRoster, defRoster, down, distance, ballOn,
         statAdd(qb, "passAttempts", 1); statAdd(target, "targets", 1);
         return { yards: 0, desc: `${qb.name} tenta ${concept.name}${motionTag}${personnelTag}, mas ${defender.name} defende bem o passe.`, isPass: true, incomplete: true, target, dir: concept.dir, depth: concept.depth, personnel, elapsed: randInt(rng, 24, 34) };
       }
-      const intChance = clamp(concept.baseInt - diff * 0.01 + (hurried ? 0.05 : 0), 0.01, 0.22);
+      const intChance = clamp(concept.baseInt - diff * 0.01 - (attr(qb, "AWR") - 75) * 0.0005 + (hurried ? 0.05 : 0), 0.01, 0.22);
       if (rng() < intChance) {
         statAdd(qb, "interceptionsThrown", 1); statAdd(qb, "passAttempts", 1); statAdd(target, "targets", 1);
         statAdd(defender, "interceptions", 1);
@@ -302,6 +363,8 @@ function simPlay(offAbbr, defAbbr, offRoster, defRoster, down, distance, ballOn,
       return { yards: 0, desc: `${qb.name} tenta ${concept.name} para ${target.name}${motionTag}${personnelTag}... incompleto.`, isPass: true, incomplete: true, target, dir: concept.dir, depth: concept.depth, personnel, elapsed: randInt(rng, 24, 34) };
     }
     let yards = Math.max(0, Math.round(concept.baseYards + diff * 1 + randInt(rng, concept.varLow, concept.varHigh)));
+    // braço forte (THP) rende mais jardas nos lançamentos médios/longos
+    if (concept.depth !== "short") yards = Math.max(0, yards + Math.round((attr(qb, "THP") - 75) * (concept.depth === "deep" ? 0.06 : 0.03)));
     if (rng() < concept.bigPlayChance) yards += randInt(rng, 15, 45);
     const tackler = pickW(rng, [...secondary, ...frontSeven.filter((p) => p.pos === "LB")], tackleWeight);
     statAdd(qb, "passYards", yards); statAdd(qb, "passCompletions", 1); statAdd(qb, "passAttempts", 1);
@@ -316,17 +379,20 @@ function simPlay(offAbbr, defAbbr, offRoster, defRoster, down, distance, ballOn,
     const oRate = offenseRating(offRoster, "run", rb), dRate = defenseRating(defRoster, "run");
     const gap = pick(rng, RUN_GAPS);
     const blocker = slotPlayer(offRoster, gap.blockerSlot);
-    const runDefender = pickW(rng, frontSeven, (p) => p.attrs.RUN || p.ovr);
-    const blockDiff = blocker ? ((blocker.attrs.RBK || blocker.ovr) - (runDefender.attrs.RUN || runDefender.ovr) + randInt(rng, -10, 10)) / 20 : 0;
+    const runDefender = pickW(rng, frontSeven, runDefRating);
+    // corridas por fora (e pulls/zona) dependem bem mais da agilidade (AGI) da OL
+    const outside = gap.label.startsWith("por fora");
+    const blockDiff = blocker ? (runBlockRating(blocker, outside) - runDefRating(runDefender) + randInt(rng, -10, 10)) / 20 : 0;
     const diff = clamp((oRate - dRate) / 10 + pInfo.runBonus + blockDiff, -3, 3);
     if (rng() < clamp(0.02 - diff * 0.005, 0.005, 0.06)) {
-      const defender = pickW(rng, frontSeven, (p) => p.attrs.RUN || p.ovr);
+      const defender = pickW(rng, frontSeven, runDefRating);
       statAdd(rb, "fumbles", 1);
       statAdd(defender, "fumbleRecoveries", 1);
       return { yards: 0, desc: `${rb.name} perde a bola! Recuperada por ${defender.name}.`, isPass: false, turnover: "FUM", dir: gap.dir, depth: "run", personnel, elapsed: randInt(rng, 28, 38) };
     }
     let yards = Math.max(-3, Math.round(2.0 + diff * 1.3 + randInt(rng, -3, 5)));
-    if (rng() < 0.05) yards += randInt(rng, 12, 30);
+    // explosão (ACC/SPD) do RB aumenta a chance de lance longo
+    if (rng() < clamp(0.05 + ((attr(rb, "ACC") + attr(rb, "SPD")) / 2 - 75) * 0.0004, 0.02, 0.1)) yards += randInt(rng, 12, 30);
     const tackler = pickW(rng, [...frontSeven, ...secondary.filter((p) => p.pos === "S")], tackleWeight);
     statAdd(rb, "rushYards", yards); statAdd(rb, "rushAttempts", 1);
     statAdd(tackler, "tackles", 1);
@@ -339,9 +405,15 @@ function simPlay(offAbbr, defAbbr, offRoster, defRoster, down, distance, ballOn,
   }
 }
 
-function attemptFG(kicker, distanceToGoal, rng) {
+// ctx (opcional): { quarter, scoreDiff } — no 4º quarto/prorrogação com placar
+// a até 3 pontos, o CLT do kicker pesa (acima de 70 ajuda, abaixo atrapalha;
+// para só dar bônus, troque o piso -0.04 por 0).
+function attemptFG(kicker, distanceToGoal, rng, ctx) {
   const kickDist = distanceToGoal + 17;
-  const chance = clamp(0.98 - (kickDist - 20) * 0.013 + (kicker.attrs.ACC - 75) * 0.002, 0.15, 0.98);
+  const longBoost = (attr(kicker, "KPW") - 75) * 0.0015 * clamp((kickDist - 35) / 20, 0, 1.2); // potência importa nos chutes longos
+  let chance = 0.98 - (kickDist - 20) * 0.013 + (attr(kicker, "KAC") - 75) * 0.002 + longBoost;
+  if (ctx && ctx.quarter >= 4 && Math.abs(ctx.scoreDiff) <= 3) chance += clamp((attr(kicker, "CLT") - 70) * 0.0025, -0.04, 0.05);
+  chance = clamp(chance, 0.15, 0.98);
   return { good: rng() < chance, kickDist };
 }
 
@@ -432,7 +504,7 @@ function simGameDetailed(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
     if (down === 4 && !(tendO.aggressive > 0.6 && distance <= 3)) {
       if (yardsToGoal <= 38) {
         const kicker = activePlayer(offTeam.roster, "K1");
-        const { good, kickDist } = attemptFG(kicker, yardsToGoal, rng);
+        const { good, kickDist } = attemptFG(kicker, yardsToGoal, rng, { quarter, scoreDiff: score[offAbbr] - score[defAbbr] });
         statAdd(kicker, "fgAttempts", 1); if (good) statAdd(kicker, "fgMade", 1);
         if (kickDist >= 40) { statAdd(kicker, "fgAttempts40", 1); if (good) statAdd(kicker, "fgMade40", 1); }
         if (kickDist >= 50) { statAdd(kicker, "fgAttempts50", 1); if (good) statAdd(kicker, "fgMade50", 1); }

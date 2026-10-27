@@ -1,5 +1,5 @@
 import { clamp } from "../lib/rng.js";
-import { SUB_ATTRS } from "../data/rosterSlots.js";
+import { attrHighlights } from "./attrLabels.js";
 import { teamNeeds } from "./freeAgencyAI.js";
 
 // ============================================================
@@ -27,40 +27,18 @@ function gradeColor(grade) {
   return "#fbbf24";
 }
 
-// Scouting language for each tracked sub-attribute — the flattering read
-// (when it's a player's standout trait) and the worried read (when it's
-// their soft spot).
-const TRAIT_LABELS = {
-  ARM: "braço forte", ACC: "precisão fina",
-  SPD: "velocidade de nível elite", POW: "poder físico",
-  HND: "mãos confiáveis", BLK: "capacidade de bloqueio",
-  RBK: "bloqueio de corrida", PBK: "proteção de passe",
-  RSH: "pressão constante no QB", RUN: "instinto contra a corrida",
-  COV: "cobertura fechada", TKL: "tackle seguro",
-};
-const CONCERN_LABELS = {
-  ARM: "braço abaixo da média", ACC: "precisão inconsistente",
-  SPD: "velocidade limitada para a posição", POW: "falta de poder físico",
-  HND: "mãos inconsistentes", BLK: "bloqueio ainda cru",
-  RBK: "bloqueio de corrida a desenvolver", PBK: "proteção de passe a desenvolver",
-  RSH: "pouca pressão gerada", RUN: "instinto contra a corrida a desenvolver",
-  COV: "cobertura a desenvolver", TKL: "tackle inconsistente",
-};
-
-// A one-line scouting report: the standout trait, and — if the weaker of
-// the two attributes is genuinely shaky — the concern to go with it.
+// Um relatório de olheiro em uma linha: o maior atributo do jogador (ponto
+// forte) e, se o menor for realmente fraco, a ressalva que acompanha. Os textos
+// de cada atributo vivem em attrLabels.js (TRAIT_LABELS / CONCERN_LABELS).
 function scoutingReport(player) {
-  const keys = SUB_ATTRS[player.pos] || [];
-  if (keys.length !== 2) return { strength: null, concern: null };
-  const [k1, k2] = keys;
-  const v1 = player.attrs[k1], v2 = player.attrs[k2];
-  const [hiKey, hiVal] = v1 >= v2 ? [k1, v1] : [k2, v2];
-  const [loKey, loVal] = v1 >= v2 ? [k2, v2] : [k1, v1];
+  const h = attrHighlights(player.pos, player.attrs);
+  if (!h) return { strength: null, concern: null };
+  const { best, worst } = h;
   return {
-    strength: TRAIT_LABELS[hiKey] || null,
-    strengthKey: hiKey, strengthValue: hiVal,
-    concern: loVal < 68 ? (CONCERN_LABELS[loKey] || null) : null,
-    concernKey: loKey, concernValue: loVal,
+    strength: best.text,
+    strengthKey: best.key, strengthValue: best.value,
+    concern: worst.value < 68 ? worst.text : null,
+    concernKey: worst.key, concernValue: worst.value,
   };
 }
 

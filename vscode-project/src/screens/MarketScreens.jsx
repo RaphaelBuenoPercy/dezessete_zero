@@ -226,15 +226,10 @@ function FreeAgentDetailScreen({ playerId, career, myTeam, onBack, onOffer, onWi
           <div><div className="text-slate-500 text-[11px]">Anos</div><div className="font-bold text-lg">{player.askingYears}</div></div>
         </div>
       </Card>
-      {subAttrs.length === 2 && (
+      {subAttrs.length > 0 && (
         <Card className="mb-3">
           <div className="text-sm font-semibold mb-2">Atributos</div>
-          {subAttrs.map((a) => (
-            <div key={a} className="mb-2 last:mb-0">
-              <div className="flex justify-between text-xs mb-1"><span>{a}</span><span>{player.attrs[a]}</span></div>
-              <Bar value={player.attrs[a]} max={99} color="#38bdf8" />
-            </div>
-          ))}
+          <AttrBars pos={player.pos} attrs={player.attrs} />
         </Card>
       )}
 
@@ -317,7 +312,7 @@ function FreeAgentCard({ p, targetSlot, career, myTeam, onOffer, onOpenPlayer })
           </div>
           <div className="mt-1 flex items-center gap-2 flex-wrap"><StatusBadge read={read} /><DecisionClock decisionIn={read.decisionIn} /></div>
           <DesireTags player={p} />
-          <AttrBars pos={p.pos} attrs={p.attrs} />
+          <AttrBars pos={p.pos} attrs={p.attrs} top={6} />
           {targetSlot && (
             <div className="text-[11px] text-slate-500 mt-2">
               substituiria <span className="text-slate-300">{targetSlot.name}</span> <span className="text-slate-500">({targetSlot.ovr} OVR)</span>
@@ -541,15 +536,10 @@ function ProspectDetailScreen({ playerId, career, myTeam, onBack, onDraftPick })
           <div><div className="text-slate-500 text-[11px]">Rodada</div><div className="font-bold text-lg">{player.draftRound}</div></div>
         </div>
       </Card>
-      {subAttrs.length === 2 && (
+      {subAttrs.length > 0 && (
         <Card className="mb-3">
           <div className="text-sm font-semibold mb-2">Atributos</div>
-          {subAttrs.map((a) => (
-            <div key={a} className="mb-2 last:mb-0">
-              <div className="flex justify-between text-xs mb-1"><span>{a}</span><span>{player.attrs[a]}</span></div>
-              <Bar value={player.attrs[a]} max={99} color="#38bdf8" />
-            </div>
-          ))}
+          <AttrBars pos={player.pos} attrs={player.attrs} />
         </Card>
       )}
       <Card className="mb-3">
@@ -597,7 +587,7 @@ function ProspectCard({ p, myTeam, isMe, onDraftPick, onOpenPlayer }) {
           <div className="text-[11px] text-slate-500 mt-0.5">idade {p.age} · projeção OVR {p.ovr}</div>
           <div className="text-[11px] font-medium mt-1" style={{ color: fit.color }}>{fit.label}</div>
           <ScoutingBlurb report={report} />
-          <AttrBars pos={p.pos} attrs={p.attrs} />
+          <AttrBars pos={p.pos} attrs={p.attrs} top={6} />
         </div>
       </div>
       {isMe && <Btn className="w-full mt-3" onClick={() => onDraftPick(p)}>Draftar {p.name.split(" ").slice(-1)[0]}</Btn>}

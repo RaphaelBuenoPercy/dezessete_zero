@@ -2,7 +2,7 @@ import React from "react";
 import { CAP } from "../data/teams.js";
 import { SUB_ATTRS } from "../data/rosterSlots.js";
 import { capUsed } from "../engine/playerGen.js";
-import { Bar, Card, TeamLogo, PosPill, primaryStatLine, devLabel } from "../components/ui.jsx";
+import { Bar, Card, TeamLogo, PosPill, primaryStatLine, devLabel, AttrBars } from "../components/ui.jsx";
 import { moraleLabel } from "../season/morale.js";
 import { rivalryTier, headToHeadLine } from "../season/rivalries.js";
 import { teamIdentity } from "../season/teamIdentity.js";
@@ -184,15 +184,10 @@ function PlayerDetailScreen({ playerId, teamAbbr, career, onBack, onOpenTeam, on
           <div><div className="text-slate-500 text-[11px]">Salário</div><div className="font-bold text-lg">${player.salary.toFixed(1)}M</div></div>
         </div>
       </Card>
-      {subAttrs.length === 2 && (
+      {subAttrs.length > 0 && (
         <Card className="mb-3">
           <div className="text-sm font-semibold mb-2">Atributos</div>
-          {subAttrs.map((a) => (
-            <div key={a} className="mb-2 last:mb-0">
-              <div className="flex justify-between text-xs mb-1"><span>{a}</span><span>{player.attrs[a]}</span></div>
-              <Bar value={player.attrs[a]} max={99} color="#38bdf8" />
-            </div>
-          ))}
+          <AttrBars pos={player.pos} attrs={player.attrs} />
         </Card>
       )}
       <Card className="mb-3">

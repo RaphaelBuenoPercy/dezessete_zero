@@ -1,6 +1,6 @@
 // Roster slot layout (offense/special teams are fixed; the defensive
 // front depends on the team's scheme) and the pair of secondary
-// attributes tracked per position.
+// attributes tracked per position (ver SUB_ATTRS).
 
 const FIXED_SLOTS = [
   { key:"QB1", pos:"QB", tier:"star" }, { key:"QB2", pos:"QB", tier:"backup" },
@@ -35,12 +35,33 @@ function schemeSlots(scheme) {
 function rosterSlotsFor(scheme) { return [...FIXED_SLOTS, ...schemeSlots(scheme)]; }
 const ROSTER_SLOTS = rosterSlotsFor("4-3"); // default shape, used by generic helpers (retirement, etc.)
 
+// Atributos individuais por posição. O OVR do jogador é derivado deles
+// (média ponderada, ver POSITION_WEIGHTS em engine/playerGen.js).
 const SUB_ATTRS = {
-  QB:["ARM","ACC"], RB:["SPD","POW"], WR:["SPD","HND"], TE:["HND","BLK"],
-  OL:["RBK","PBK"], DL:["RSH","RUN"], LB:["COV","RUN"], CB:["COV","SPD"],
-  S:["COV","TKL"], K:["POW","ACC"], P:["POW","ACC"],
+  QB: ["THP", "STA", "MTA", "DTA", "AWR", "MOB", "TUP"],
+  RB: ["SPD", "ACC", "POW", "VIS", "CTH", "PBK"],
+  WR: ["SPD", "ACC", "CTH", "RTE", "CIT", "RBK"],
+  TE: ["CTH", "RBK", "STR", "RTE", "CIT", "PBK", "ACC", "SPD"],
+  OL: ["PBK", "RBK", "STR", "AWR", "AGI"],
+  DL: ["PMV", "FMV", "BSH", "STR", "TKL", "AWR"],
+  LB: ["TKL", "PRC", "ZCV", "BSH", "SPD", "MCV", "FMV", "PMV", "ACC"],
+  CB: ["MCV", "ZCV", "SPD", "ACC", "PRS", "STR", "AWR"],
+  S: ["ZCV", "TKL", "PRC", "SPD", "PUR", "MCV", "ACC"],
+  K: ["KPW", "KAC", "CLT"],
+  P: ["KPW", "KAC", "TRK"],
 };
 
+// Nome completo de cada atributo (tooltips, relatório de olheiros, tela do jogador).
+const ATTR_LABELS = {
+  THP: "Força de arremesso", STA: "Precisão curta", MTA: "Precisão média", DTA: "Precisão longa",
+  AWR: "Visão de jogo", MOB: "Mobilidade", TUP: "Arremesso sob pressão",
+  SPD: "Velocidade", ACC: "Aceleração", POW: "Força / quebra de tackle", VIS: "Visão de corrida",
+  CTH: "Recepção", PBK: "Bloqueio de passe", RBK: "Bloqueio de corrida", RTE: "Rotas",
+  CIT: "Recepção sob marcação", STR: "Força", AGI: "Agilidade",
+  PMV: "Power move", FMV: "Finesse move", BSH: "Desvencilhar de bloqueio", TKL: "Tackle",
+  PRC: "Leitura de jogo", ZCV: "Cobertura por zona", MCV: "Cobertura individual",
+  PRS: "Press", PUR: "Perseguição",
+  KPW: "Potência de chute", KAC: "Precisão de chute", CLT: "Frieza (clutch)", TRK: "Chute de efeito",
+};
 
-
-export { FIXED_SLOTS, schemeSlots, rosterSlotsFor, ROSTER_SLOTS, SUB_ATTRS };
+export { FIXED_SLOTS, schemeSlots, rosterSlotsFor, ROSTER_SLOTS, SUB_ATTRS, ATTR_LABELS };

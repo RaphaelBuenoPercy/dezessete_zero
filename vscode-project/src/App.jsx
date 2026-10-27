@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { mulberry32, seedFromString, randInt, pick, clamp } from "./lib/rng.js";
 import { CAP } from "./data/teams.js";
-import { buildSchedule, generateFreeAgents, generateDraftClass, capUsed } from "./engine/playerGen.js";
+import { buildSchedule, generateFreeAgents, generateDraftClass, capUsed, upgradeCareerPlayers } from "./engine/playerGen.js";
 import { snapshotRosterStats, diffRosterStats, simGameDetailed, simGameQuick } from "./engine/simulation.js";
 import { buildPressEvent } from "./engine/press.js";
 import { recordMeeting, rivalryTier, headToHeadLine, detectStandoutPerformances, updateNemeses } from "./season/rivalries.js";
@@ -137,7 +137,11 @@ export default function App() {
   function onLoadCareer(id) {
     try {
       const raw = localStorage.getItem("nflcareer:" + id);
-      if (raw) { setCareer(JSON.parse(raw)); setScreen("hub"); }
+      if (raw) {
+        const loaded = JSON.parse(raw);
+        upgradeCareerPlayers(loaded); // saves antigos (2 atributos) -> novos atributos, mantendo o OVR
+        setCareer(loaded); setScreen("hub");
+      }
     } catch (e) {}
   }
   function onDeleteCareer(id) {

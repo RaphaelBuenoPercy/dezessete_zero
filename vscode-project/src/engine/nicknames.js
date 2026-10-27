@@ -3,38 +3,65 @@ import { pick } from "../lib/rng.js";
 // ============================================================
 // PLAYER NICKNAMES
 //
-// Assigned once, at creation (same moment attrs are rolled), from
-// whichever of the player's two tracked sub-attributes is stronger. Pure
+// Assigned once, at creation (same moment attrs are rolled), a partir do
+// MAIOR atributo do jogador entre todos os atributos da posição. Pure
 // flavor — never read by any gameplay system — so it's safe to call from
 // makePlayer/makeCustomPlayer without touching anything else.
 // ============================================================
 
 const NICKNAME_POOL = {
-  ARM: ["Canhão", "Braço de Aço", "Mísseis"],
-  ACC: ["Cirurgião", "Precisão", "Relojoeiro"],
+  // QB
+  THP: ["Canhão", "Braço de Aço", "Mísseis"],
+  STA: ["Metrônomo", "Relojoeiro", "Bisturi"],
+  MTA: ["Cirurgião", "Precisão", "Mira Laser"],
+  DTA: ["Franco-Atirador", "Míssil Guiado", "Bomba Certeira"],
+  AWR: ["Professor", "Cérebro", "Enxadrista"],
+  MOB: ["Houdini", "Enguia", "Escapista"],
+  TUP: ["Sangue-Frio", "Gelo nas Veias", "Imperturbável"],
+  // velocidade / físico
   SPD: ["Foguete", "Relâmpago", "Vento"],
+  ACC: ["Turbo", "Arrancada", "Mola"],
   POW: ["Trator", "Muralha", "Demolidor"],
-  HND: ["Mãos de Veludo", "Aranha", "Imã"],
-  BLK: ["Porta de Aço", "Parede"],
-  RBK: ["O Muro", "Fundação"],
-  PBK: ["Guardião", "Escudo"],
-  RSH: ["Caçador", "Pesadelo do QB", "Fera"],
-  RUN: ["Parede de Contenção", "Freio"],
-  COV: ["Sombra", "Cadeado", "Fantasma"],
-  TKL: ["Martelo", "Trem-Bala"],
+  STR: ["Touro", "Hércules", "Gigante"],
+  AGI: ["Gato", "Dançarino", "Elástico"],
+  VIS: ["Radar", "Olhos de Águia", "GPS"],
+  // recebedores
+  CTH: ["Mãos de Veludo", "Aranha", "Imã"],
+  RTE: ["Bússola", "Desenhista", "Gelo"],
+  CIT: ["Destemido", "Blindado", "Sem Medo"],
+  // linha
+  PBK: ["Guardião", "Escudo", "Cofre"],
+  RBK: ["O Muro", "Fundação", "Porta de Aço"],
+  PMV: ["Marreta", "Britadeira", "Fera"],
+  FMV: ["Navalha", "Enguia do Pass Rush", "Pesadelo do QB"],
+  BSH: ["Faxineiro", "Desintegrador", "Parede de Contenção"],
+  // defesa
+  TKL: ["Martelo", "Trem-Bala", "Guilhotina"],
+  PRC: ["Vidente", "Leitor", "Radar de Jogadas"],
+  ZCV: ["Teia", "Redoma", "Guardião da Zona"],
+  MCV: ["Sombra", "Cadeado", "Fantasma"],
+  PRS: ["Algema", "Grudento", "Muro de Contenção"],
+  PUR: ["Cão de Caça", "Perseguidor", "Rastreador"],
+  // especialistas
+  KPW: ["Bazuca", "Pé de Ferro", "Canhão do Pé"],
+  KAC: ["Relógio Suíço", "Pé de Ouro", "Mira Perfeita"],
+  CLT: ["Hora H", "Decisivo", "Gelado"],
+  TRK: ["Mágico", "Ilusionista", "Truqueiro"],
 };
 
-// Picks the stronger of the player's two sub-attributes and draws a
-// nickname from that trait's pool — small random element so two players
-// with the same standout trait don't always share a name.
+// Escolhe o maior atributo entre TODOS os do jogador e sorteia um apelido do
+// pool desse atributo. Empates entre atributos são resolvidos no sorteio, e o
+// apelido em si também é sorteado, então dois jogadores com o mesmo destaque
+// nem sempre dividem o nome.
 function generateNickname(rng, pos, attrs, subAttrKeys) {
-  const keys = subAttrKeys || Object.keys(attrs || {});
-  if (keys.length !== 2) return null;
-  const [k1, k2] = keys;
-  const hiKey = (attrs[k1] ?? 0) >= (attrs[k2] ?? 0) ? k1 : k2;
+  const keys = (subAttrKeys && subAttrKeys.length ? subAttrKeys : Object.keys(attrs || {})).filter((k) => attrs?.[k] != null);
+  if (!keys.length) return null;
+  const top = Math.max(...keys.map((k) => attrs[k]));
+  const best = keys.filter((k) => attrs[k] === top);
+  const hiKey = best.length > 1 ? pick(rng, best) : best[0];
   const pool = NICKNAME_POOL[hiKey];
   if (!pool) return null;
   return pick(rng, pool);
 }
 
-export { generateNickname };
+export { generateNickname, NICKNAME_POOL };
