@@ -6,6 +6,9 @@ import { DEFAULT_PERSONNEL } from "../engine/simulation.js";
 import { moraleLabel } from "../season/morale.js";
 import { isExpiring, extensionAsk } from "../season/contracts.js";
 import { Card, Btn, TeamLogo, PlayerRow } from "../components/ui.jsx";
+import { CoachCard, ImpactRow } from "../components/CoachCard.jsx";
+import { ROLE_LABEL } from "../engine/coachesGen.js";
+import { staffImpact } from "../engine/staffEffects.js";
 
 // Elenco, escalação (depth chart + formation diagram) e táticas — as
 // três telas de gestão do próprio time.
@@ -366,4 +369,55 @@ function ContractsScreen({ myTeam, onExtend, onRelease, onBack }) {
    ============================================================ */
 
 
-export { RosterScreen, DepthChartScreen, TacticsScreen, ContractsScreen };
+
+/* ============================================================
+   COMISSÃO TÉCNICA (coordenadores)
+   ============================================================ */
+function StaffScreen({ career, myTeam, go, onFire, onRenew }) {
+  const [msg, setMsg] = useState("");
+  const offseason = career.phase === "offseason";
+  const impact = staffImpact(myTeam.roster, myTeam.coaches);
+  const hires = (career.hcHires || []).slice(-4).reverse();
+  const act = (fn, role) => { const r = fn(role); setMsg(r?.msg || ""); };
+  return (
+    <div className="pb-24">
+      <h2 className="text-xl font-black mb-1">Comissão técnica</h2>
+      <div className="text-xs text-slate-500 mb-3">Você é o Head Coach. Os coordenadores dão bônus nos atributos durante os jogos (o OVR guardado dos jogadores não muda). O nível é reputação: o rendimento real é imprevisível.</div>
+      {Object.keys(impact).some((k) => Math.abs(impact[k]) >= 0.1) && <Card className="mb-3"><ImpactRow impact={impact} /></Card>}
+      {msg && <div className="text-xs text-amber-300 mb-2">{msg}</div>}
+      {["OC", "DC", "SC"].map((role) => {
+        const co = myTeam.coaches?.[role];
+        if (!co) {
+          return (
+            <Card key={role} className="mb-3 border-red-400/30">
+              <div className="font-semibold text-sm mb-1">{ROLE_LABEL[role]}: vaga em aberto</div>
+              <div className="text-xs text-slate-400 mb-3">Sem coordenador você joga sem bônus de esquema nessa área.</div>
+              <Btn className="w-full" onClick={() => go("coachmarket")}>Ir ao mercado de técnicos</Btn>
+            </Card>
+          );
+        }
+        return (
+          <CoachCard key={role} coach={co}>
+            <div className="grid grid-cols-2 gap-2">
+              <Btn variant="ghost" disabled={co.years > 2} onClick={() => act(onRenew, role)}>Renovar +2 anos</Btn>
+              <Btn variant="danger" disabled={!offseason} onClick={() => act(onFire, role)}>Dispensar</Btn>
+            </div>
+            {co.years <= 1 && <div className="text-[10px] text-amber-300 mt-1.5">⚠️ Contrato acabando: renove, ou ele vai ao mercado.</div>}
+            {!offseason && <div className="text-[10px] text-slate-500 mt-1.5">Só dá para dispensar na offseason.</div>}
+          </CoachCard>
+        );
+      })}
+      <Btn variant="ghost" className="w-full mb-3" onClick={() => go("coachmarket")}>Mercado de técnicos</Btn>
+      {hires.length > 0 && (
+        <Card>
+          <div className="text-xs text-slate-400 mb-2">Carrossel recente: coordenadores promovidos a Head Coach</div>
+          {hires.map((h, i) => (
+            <div key={i} className="text-xs text-slate-300 py-1 border-b border-white/5 last:border-0">{h.year}: {h.name} ({h.role}, ex-{h.fromTeam}) → {h.teamAbbr}</div>
+          ))}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+export { RosterScreen, DepthChartScreen, TacticsScreen, ContractsScreen, StaffScreen };

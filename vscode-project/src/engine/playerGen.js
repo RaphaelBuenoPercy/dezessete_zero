@@ -4,6 +4,7 @@ import { TEAM_META, CAP } from "../data/teams.js";
 import { makeName } from "../data/names.js";
 import { CUSTOM_ROSTERS } from "../customRosters.js";
 import { generateNickname } from "./nicknames.js";
+import { generateStartingStaff, FRONT_BY_SCHEME } from "./coachesGen.js";
 
 // Procedural player/roster/league generation, plus the free-agency and
 // draft pools drawn from the same generator (see makePlayer).
@@ -179,7 +180,10 @@ function upgradeCareerPlayers(career) {
 function buildRoster(team) {
   const rng = mulberry32(seedFromString(team.abbr + "-roster"));
   const custom = CUSTOM_ROSTERS[team.abbr];
-  const scheme = custom?.scheme || (rng() < 0.5 ? "4-3" : "3-4");
+  // O front seven vem do esquema do Coordenador Defensivo (customRosters.scheme, se existir,
+  // escolhe o front e o DC é gerado para combinar com ele).
+  const staff = generateStartingStaff(mulberry32(seedFromString(team.abbr + "-staff")), custom?.scheme);
+  const scheme = FRONT_BY_SCHEME[staff.DC.scheme];
   const slots = rosterSlotsFor(scheme);
   const customBySlot = {};
   (custom?.players || []).forEach((cp) => { if (cp.slot) customBySlot[cp.slot] = cp; });
@@ -197,7 +201,7 @@ function buildRoster(team) {
     return p;
   });
   normalizeSalaries(roster, rng);
-  return { roster, scheme };
+  return { roster, scheme, coaches: { OC: staff.OC, DC: staff.DC, SC: staff.SC } };
 }
 
 // Scale every contract on the roster so the team's total payroll lands under the cap,
@@ -212,10 +216,10 @@ function normalizeSalaries(roster, rng) {
 function buildLeague() {
   const teams = {};
   TEAM_META.forEach((meta) => {
-    const { roster, scheme } = buildRoster(meta);
+    const { roster, scheme, coaches } = buildRoster(meta);
     teams[meta.abbr] = {
       ...meta,
-      roster, scheme,
+      roster, scheme, coaches,
       wins: 0, losses: 0, ties: 0, pf: 0, pa: 0,
       ownerConfidence: 65, fanSupport: 60,
       picks: [1, 2, 3, 4, 5, 6, 7].map((r) => ({ round: r, id: `${meta.abbr}-${r}-init` })),

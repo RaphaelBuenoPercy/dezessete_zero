@@ -6,11 +6,12 @@ import { rivalryTier, headToHeadLine } from "../season/rivalries.js";
 import { isExpiring } from "../season/contracts.js";
 import { teamScore, winProbability } from "../season/powerRankings.js";
 import { Bar, Card, Btn, TeamLogo } from "../components/ui.jsx";
+import { LevelBadge } from "../components/CoachCard.jsx";
 
 // The main dashboard shown between weeks: next game, standings blurb,
 // news feed, cap room, and the season/offseason action buttons.
 
-function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onSimSeason, onOpenTeam }) {
+function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onSimSeason, onDismissAlert, onOpenTeam }) {
   const tm = TEAM_META.find((t) => t.abbr === myTeam.abbr);
   const round = career.schedule[career.week - 1];
   const nextGame = round?.find((g) => g.home === myTeam.abbr || g.away === myTeam.abbr);
@@ -39,6 +40,15 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onSimSea
           <div className="text-xs text-slate-500">{career.year} · {myTeam.wins}-{myTeam.losses}{myTeam.ties ? `-${myTeam.ties}` : ""}</div>
         </div>
       </button>
+      {(career.staffAlerts || []).map((a) => (
+        <Card key={a.id} className={`mb-3 ${a.kind === "poached" ? "border-red-500/60" : "border-amber-400/40"}`}>
+          <div className="text-sm mb-3">{a.text}</div>
+          <div className="grid grid-cols-2 gap-2">
+            <Btn onClick={() => go("coachmarket")}>Mercado de técnicos</Btn>
+            <Btn variant="ghost" onClick={() => onDismissAlert(a.id)}>Dispensar aviso</Btn>
+          </div>
+        </Card>
+      ))}
       {gamePending && (
         <Card className="mb-4 border-amber-400/40">
           <div className="text-sm font-semibold mb-1">🏈 Você tem um jogo em andamento</div>
@@ -65,6 +75,27 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onSimSea
           <span className="font-semibold" style={{ color: moraleRead.color }}>{moraleRead.label}</span>
         </div>
       </Card>
+
+      <button onClick={() => go("staff")} className="w-full text-left mb-4">
+        <Card>
+          <div className="text-xs text-slate-400 mb-2">🧢 Comissão técnica</div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            {["OC", "DC", "SC"].map((r) => {
+              const co = myTeam.coaches?.[r];
+              return (
+                <div key={r} className="flex items-center gap-2 min-w-0">
+                  {co ? <LevelBadge level={co.level} size={26} /> : <div className="w-[26px] h-[26px] rounded-lg border border-red-400/40 shrink-0" />}
+                  <div className="min-w-0">
+                    <div className="text-slate-500 text-[10px]">{r}</div>
+                    <div className="truncate">{co ? co.name : "Vaga"}</div>
+                    {co && <div className="truncate text-[10px] text-slate-500">{co.scheme}</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      </button>
 
       {career.phase === "season" && (
         <Card className="mb-4">
@@ -122,6 +153,7 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onSimSea
             <Btn variant="ghost" onClick={() => go("freeagency")}>Free Agency</Btn>
             <Btn variant="ghost" onClick={() => go("draft")}>Draft</Btn>
           </div>
+          <Btn variant="ghost" className="w-full mb-2" onClick={() => go("coachmarket")}>Mercado de técnicos</Btn>
           <Btn variant="ghost" className="w-full mb-3" onClick={() => go("contracts")}>
             Contratos{expiringCount > 0 ? ` (${expiringCount} vencendo)` : ""}
           </Btn>

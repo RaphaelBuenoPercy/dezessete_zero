@@ -4,6 +4,8 @@ import {
   manCover, zoneCover, routeSkill, finesseMove, powerMove, runDefRating,
   runBlockRating, passBlockRating,
 } from "./ratings.js";
+import { SCHEME_META } from "./coachesGen.js";
+import { applyStaffBonuses, clearStaffBonuses } from "./staffEffects.js";
 
 // The play-by-play game engine (simGameDetailed) plus the lighter
 // statistical approximation used for the 15 games the user isn't
@@ -274,7 +276,7 @@ const QB_ACC_BY_DEPTH = { short: "STA", medium: "MTA", deep: "DTA" };
 // rotas longas pedem mais shell/zone; táticas agressivas aumentam o man.
 // (Se um dia existir um slider de tática de cobertura, é só somar aqui.)
 function coverageType(rng, defender, concept, tendD) {
-  let man = 0.38 + ((tendD?.aggressive ?? 0.5) - 0.5) * 0.4;
+  let man = 0.38 + ((tendD?.aggressive ?? 0.5) - 0.5) * 0.4 + (tendD?.manBias || 0); // manBias: esquema do DC
   if (defender.pos === "CB") man += 0.2;
   else if (defender.pos === "LB") man -= 0.08;
   if (concept.depth === "deep") man -= 0.1;
@@ -431,7 +433,33 @@ function situationalPassRatio(baseRatio, scoreDiff, quarter, secsLeft) {
   return clamp(baseRatio + adj, 0.12, 0.92);
 }
 
+// Estilo dos coordenadores nas táticas do jogo: o esquema do OC muda a % de passes e o
+// do DC muda blitz/man (os sliders do usuário continuam valendo, isto só soma por cima).
+// Special teams coordinator: alcance de FG, agressividade na 4ª descida e punts (TRK/KAC colocam a bola).
+function stMeta(team) { return SCHEME_META[team?.coaches?.SC?.scheme] || {}; }
+function puntDistance(punter, ballOn, rng) {
+  let yds = randInt(rng, 35, 50) + Math.round((attr(punter, "KPW") - 75) * 0.12);
+  if (ballOn + yds >= 100) {                                  // iria para o fundo da endzone: chance de colocar a bola
+    const place = ((attr(punter, "TRK") * 0.6 + attr(punter, "KAC") * 0.4) - 50) / 120;
+    if (rng() < clamp(place, 0, 0.6)) yds = 100 - ballOn - randInt(rng, 5, 12);
+  }
+  return Math.max(20, yds);
+}
+function schemePassBias(team) { return SCHEME_META[team?.coaches?.OC?.scheme]?.passBias || 0; }
+function withDefScheme(tend, team) {
+  const m = SCHEME_META[team?.coaches?.DC?.scheme] || {};
+  return { ...tend, aggressive: clamp((tend?.aggressive ?? 0.5) + (m.blitzBias || 0), 0, 1), manBias: m.manBias || 0 };
+}
+
+// Entrada pública: aplica os bônus dos coordenadores dos dois times durante o jogo e
+// limpa no fim (os atributos/OVR guardados nunca são alterados).
 function simGameDetailed(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
+  const h = leagueTeams[homeAbbr], a = leagueTeams[awayAbbr];
+  applyStaffBonuses(h.roster, h.coaches); applyStaffBonuses(a.roster, a.coaches);
+  try { return simGameDetailedCore(homeAbbr, awayAbbr, leagueTeams, tendencies, rng); }
+  finally { clearStaffBonuses(h.roster); clearStaffBonuses(a.roster); }
+}
+function simGameDetailedCore(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
   const home = leagueTeams[homeAbbr], away = leagueTeams[awayAbbr];
   const log = [], scoreTimeline = [], plays = [], injuries = [];
   const score = { [homeAbbr]: 0, [awayAbbr]: 0 };
@@ -496,13 +524,14 @@ function simGameDetailed(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
     const offAbbr = possession, defAbbr = possession === homeAbbr ? awayAbbr : homeAbbr;
     const offTeam = leagueTeams[offAbbr], defTeam = leagueTeams[defAbbr];
     const baseTend = offAbbr === homeAbbr ? tendencies.home : tendencies.away;
-    const tendO = { ...baseTend, passRatio: situationalPassRatio(baseTend?.passRatio ?? 0.55, score[offAbbr] - score[defAbbr], quarter, secs) };
-    const tendD = defAbbr === homeAbbr ? tendencies.home : tendencies.away;
+    const tendO = { ...baseTend, passRatio: situationalPassRatio((baseTend?.passRatio ?? 0.55) + schemePassBias(offTeam), score[offAbbr] - score[defAbbr], quarter, secs) };
+    const tendD = withDefScheme(defAbbr === homeAbbr ? tendencies.home : tendencies.away, defTeam);
     const yardsToGoal = 100 - ballOn;
     let elapsed = 0;
 
-    if (down === 4 && !(tendO.aggressive > 0.6 && distance <= 3)) {
-      if (yardsToGoal <= 38) {
+    const st = stMeta(offTeam);
+    if (down === 4 && !((tendO.aggressive ?? 0.5) + (st.goBias || 0) > 0.6 && distance <= 3)) {
+      if (yardsToGoal <= 38 + (st.fgRangeBias || 0)) {
         const kicker = activePlayer(offTeam.roster, "K1");
         const { good, kickDist } = attemptFG(kicker, yardsToGoal, rng, { quarter, scoreDiff: score[offAbbr] - score[defAbbr] });
         statAdd(kicker, "fgAttempts", 1); if (good) statAdd(kicker, "fgMade", 1);
@@ -513,7 +542,7 @@ function simGameDetailed(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
         if (good) { score[offAbbr] += 3; kickoffReset(offAbbr); } else { possession = defAbbr; down = 1; distance = 10; ballOn = clamp(100 - yardsToGoal, 2, 98); }
       } else {
         const punter = activePlayer(offTeam.roster, "P1");
-        const puntYds = randInt(rng, 35, 50);
+        const puntYds = puntDistance(punter, ballOn, rng);
         statAdd(punter, "punts", 1); statAdd(punter, "puntYards", puntYds);
         push(`Punt de ${punter.name} saindo da ${fieldSpot(offAbbr, ballOn)}.`, label(), { offAbbr, defAbbr, down, distance, ballOn, yards: puntYds, isPass: null, dir: "meio", kind: "punt" });
         elapsed = randInt(rng, 6, 10);
@@ -541,7 +570,7 @@ function simGameDetailed(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
           else down += 1;
           if (down > 4) {
             const punter = activePlayer(offTeam.roster, "P1");
-            const puntYds = randInt(rng, 35, 50);
+            const puntYds = puntDistance(punter, ballOn, rng);
             statAdd(punter, "punts", 1); statAdd(punter, "puntYards", puntYds);
             possession = defAbbr; down = 1; distance = 10; ballOn = clamp(100 - (ballOn + puntYds), 2, 98);
           }
@@ -580,8 +609,9 @@ function simGameDetailed(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
       otPlays++;
       const offAbbr = possession, defAbbr = possession === homeAbbr ? awayAbbr : homeAbbr;
       const offTeam = leagueTeams[offAbbr], defTeam = leagueTeams[defAbbr];
-      const tendO = offAbbr === homeAbbr ? tendencies.home : tendencies.away;
-      const tendD = defAbbr === homeAbbr ? tendencies.home : tendencies.away;
+      const tendO = { ...(offAbbr === homeAbbr ? tendencies.home : tendencies.away) };
+      tendO.passRatio = clamp((tendO.passRatio ?? 0.55) + schemePassBias(offTeam), 0.05, 0.95);
+      const tendD = withDefScheme(defAbbr === homeAbbr ? tendencies.home : tendencies.away, defTeam);
       if (down > 4) { possession = defAbbr; down = 1; distance = 10; ballOn = clamp(100 - ballOn, 2, 98); continue; }
       const result = simPlay(offAbbr, defAbbr, offTeam.roster, defTeam.roster, down, distance, ballOn, tendO, tendD, rng);
       const downLabel = `${down}ª e ${distance > 0 ? distance : "gol"} na ${fieldSpot(offAbbr, ballOn)}`;
@@ -702,6 +732,12 @@ function quickGameStats(offRoster, defRoster, teamScore, rng, tendO) {
 }
 
 function simGameQuick(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
+  const h = leagueTeams[homeAbbr], a = leagueTeams[awayAbbr];
+  applyStaffBonuses(h.roster, h.coaches); applyStaffBonuses(a.roster, a.coaches);
+  try { return simGameQuickCore(homeAbbr, awayAbbr, leagueTeams, tendencies, rng); }
+  finally { clearStaffBonuses(h.roster); clearStaffBonuses(a.roster); }
+}
+function simGameQuickCore(homeAbbr, awayAbbr, leagueTeams, tendencies, rng) {
   const home = leagueTeams[homeAbbr], away = leagueTeams[awayAbbr];
   const hOvr = teamOverall(home.roster) + 1.5; // home field
   const aOvr = teamOverall(away.roster);

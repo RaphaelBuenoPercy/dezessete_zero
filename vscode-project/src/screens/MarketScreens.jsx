@@ -12,6 +12,9 @@ import { STAT_CATEGORIES, RATIO_STATS, gamesPlayedThisSeason, ratioMinimum, stat
 import { buildTierList } from "../season/powerRankings.js";
 import { GAME_RECORD_CATS, SEASON_RECORD_CATS } from "../season/records.js";
 import { Bar, Card, Btn, shadeColor, TeamLogo, PosPill, OvrBadge, AttrBars, DevTag, devLabel } from "../components/ui.jsx";
+import { CoachCard } from "../components/CoachCard.jsx";
+import { FRONT_BY_SCHEME, levelIdx } from "../engine/coachesGen.js";
+import { staffImpact } from "../engine/staffEffects.js";
 
 // The four "front office" screens: Free Agency, Draft, Trade Center and
 // league Stats, each with its own detail/card sub-components.
@@ -1175,5 +1178,52 @@ function TradeScreen({ myTeam, career, onTrade }) {
 }
 
 
-export { FreeAgentDetailScreen, FreeAgentCard, FreeAgencyScreen, ProspectDetailScreen,
+
+/* ============================================================
+   MERCADO DE TÉCNICOS (contratar OC / DC)
+   ============================================================ */
+function CoachMarketScreen({ career, myTeam, onHire, go }) {
+  const [role, setRole] = useState("OC");
+  const [msg, setMsg] = useState("");
+  const current = myTeam.coaches?.[role];
+  const base = staffImpact(myTeam.roster, myTeam.coaches);
+  const list = [...(career.coachesMarket || [])].filter((c) => c.role === role)
+    .sort((a, b) => levelIdx(b) - levelIdx(a) || b.salary - a.salary);
+  const impactOf = (cand) => {
+    const next = staffImpact(myTeam.roster, { ...myTeam.coaches, [role]: cand });
+    const out = {};
+    Object.keys(next).forEach((pos) => { out[pos] = Math.round((next[pos] - (base[pos] || 0)) * 10) / 10; });
+    return out;
+  };
+  return (
+    <div className="pb-24">
+      <h2 className="text-xl font-black mb-1">Mercado de técnicos</h2>
+      <div className="text-xs text-slate-500 mb-3">Contratação livre. O nível é a reputação; quem vai bem ou mal num time é difícil de prever.</div>
+      <div className="flex gap-1 mb-3">
+        {[["OC", "Ofensivo"], ["DC", "Defensivo"], ["SC", "Special Teams"]].map(([r, label]) => (
+          <button key={r} onClick={() => { setRole(r); setMsg(""); }}
+            className={`flex-1 text-xs py-1.5 rounded-md ${role === r ? "bg-white text-black font-semibold" : "bg-white/5 text-slate-400"}`}>{label}</button>
+        ))}
+      </div>
+      {current && <Card className="mb-3 text-xs text-slate-400">Atual: <span className="text-slate-200 font-semibold">{current.name} ({current.level}, {current.scheme})</span>. Para trocar, dispense-o na tela Comissão (offseason). Os números abaixo já comparam com ele.</Card>}
+      {msg && <div className="text-xs text-amber-300 mb-2">{msg}</div>}
+      {list.length === 0 && <Card><div className="text-sm text-slate-400">Nenhum técnico disponível agora.</div></Card>}
+      {list.map((cand) => {
+        const front = cand.role === "DC" ? FRONT_BY_SCHEME[cand.scheme] : null;
+        return (
+          <CoachCard key={cand.id} coach={cand} impact={impactOf(cand)}
+            extraInfo={front && front !== myTeam.scheme ? <div className="text-[10px] text-amber-300 mt-2">⚠️ Muda seu front para {front} (a escalação é reorganizada).</div> : null}>
+            <Btn className="w-full" disabled={!!current}
+              onClick={() => { const r = onHire(role, cand.id); setMsg(r?.msg || ""); }}>
+              {current ? "Vaga ocupada" : "Contratar"}
+            </Btn>
+          </CoachCard>
+        );
+      })}
+      <Btn variant="ghost" className="w-full" onClick={() => go("staff")}>Voltar à Comissão técnica</Btn>
+    </div>
+  );
+}
+
+export { CoachMarketScreen, FreeAgentDetailScreen, FreeAgentCard, FreeAgencyScreen, ProspectDetailScreen,
   ProspectCard, DraftScreen, StatsScreen, TradeScreen };
