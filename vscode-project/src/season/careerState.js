@@ -23,6 +23,8 @@ function newCareerState(teamAbbr, coachName) {
     tradeHistory: [],
     hallOfFame: [], lastSeasonAwards: null, hotSeatWarned: false,
     rivalries: {}, nemeses: [],
+    // eventos dinâmicos (season/events.js)
+    pendingEvents: [], activePromises: [], eventNotices: [], eventCooldowns: {}, weekMods: null,
     powerRankings: [], powerRankingsPrev: null, hotTake: null,
     predictionRecord: { correct: 0, wrong: 0, upsetWins: 0, games: 0 },
     leagueRecords: { single_game: {}, single_season: {} },

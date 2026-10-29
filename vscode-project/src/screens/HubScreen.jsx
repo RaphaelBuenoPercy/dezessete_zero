@@ -11,7 +11,7 @@ import { LevelBadge } from "../components/CoachCard.jsx";
 // The main dashboard shown between weeks: next game, standings blurb,
 // news feed, cap room, and the season/offseason action buttons.
 
-function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onSimSeason, onDismissAlert, onOpenTeam }) {
+function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onSimSeason, onDismissAlert, onDismissNotice, onOpenTeam }) {
   const tm = TEAM_META.find((t) => t.abbr === myTeam.abbr);
   const round = career.schedule[career.week - 1];
   const nextGame = round?.find((g) => g.home === myTeam.abbr || g.away === myTeam.abbr);
@@ -26,7 +26,8 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onSimSea
   const myWinProb = nextGame && oppTeamFull
     ? Math.round((isHome ? winProbability(teamScore(myTeam), teamScore(oppTeamFull)) : 1 - winProbability(teamScore(oppTeamFull), teamScore(myTeam))) * 100)
     : null;
-  const gamePending = !!(career.lastGame && (career.gameRevealCount ?? 0) < career.lastGame.log.length);
+  const eventsPending = (career.pendingEvents?.length || 0) > 0;
+  const gamePending = !!(career.lastGame && (career.gameRevealCount ?? 0) < career.lastGame.log.length) || eventsPending;
   const expiringCount = myTeam.roster.filter(isExpiring).length;
   const avgMorale = Math.round(myTeam.roster.reduce((s, p) => s + (p.morale ?? 65), 0) / myTeam.roster.length);
   const moraleRead = moraleLabel(avgMorale);
@@ -40,6 +41,21 @@ function HubScreen({ career, myTeam, go, onPlayWeek, onSimPlayoffRound, onSimSea
           <div className="text-xs text-slate-500">{career.year} · {myTeam.wins}-{myTeam.losses}{myTeam.ties ? `-${myTeam.ties}` : ""}</div>
         </div>
       </button>
+      {(career.eventNotices || []).map((n) => (
+        <Card key={n.id} className={`mb-3 ${n.tone === "good" ? "border-emerald-400/40" : n.tone === "bad" ? "border-red-500/50" : "border-white/10"}`}>
+          <div className="text-sm mb-2">{n.text}</div>
+          <Btn variant="ghost" className="w-full" onClick={() => onDismissNotice(n.id)}>Ok</Btn>
+        </Card>
+      ))}
+      {(career.activePromises || []).length > 0 && (
+        <Card className="mb-3 border-amber-400/40">
+          <div className="text-xs text-amber-300 font-semibold mb-1">🤝 Promessas em aberto</div>
+          {career.activePromises.map((p) => (
+            <div key={p.id} className="text-xs text-slate-300 py-0.5">• {p.text}{p.kind === "streak" ? ` (faltam ${p.remaining})` : ""}</div>
+          ))}
+          <div className="text-[10px] text-slate-500 mt-1">Cumprir rende recompensas; quebrar tem consequências.</div>
+        </Card>
+      )}
       {(career.staffAlerts || []).map((a) => (
         <Card key={a.id} className={`mb-3 ${a.kind === "poached" ? "border-red-500/60" : "border-amber-400/40"}`}>
           <div className="text-sm mb-3">{a.text}</div>

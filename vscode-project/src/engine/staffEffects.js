@@ -5,17 +5,30 @@ import { staffBonuses } from "./coachesGen.js";
 // p.fxOvr = ganho de OVR efetivo. p.attrs e p.ovr (derivado dos atributos) NUNCA
 // são alterados, então o OVR "de verdade" continua consistente. Sempre limpar depois.
 
+const clamp99 = (v) => Math.max(20, Math.min(99, v));
 function ovrBoost(p, b) {
   const eff = {};
-  Object.keys(p.attrs).forEach((k) => { eff[k] = Math.min(99, p.attrs[k] + (b[k] || 0)); });
+  Object.keys(p.attrs).forEach((k) => { eff[k] = clamp99(p.attrs[k] + (b[k] || 0)); });
   return computeOvr(p.pos, eff) - p.ovr;
+}
+
+// Modificadores provisórios persistidos no jogador (eventos): p.tmpMods = [{ all, attrs, weeks }].
+function tmpOf(p) {
+  const out = {};
+  (p.tmpMods || []).forEach((m) => {
+    if (m.all) Object.keys(p.attrs).forEach((k) => { out[k] = (out[k] || 0) + m.all; });
+    if (m.attrs) Object.entries(m.attrs).forEach(([k, v]) => { out[k] = (out[k] || 0) + v; });
+  });
+  return out;
 }
 
 function applyStaffBonuses(roster, coaches) {
   const bonus = staffBonuses(coaches);
   roster.forEach((p) => {
-    const b = bonus[p.pos];
-    if (!b || !p.attrs) { delete p.fx; delete p.fxOvr; return; }
+    if (!p.attrs) return;
+    const b = { ...(bonus[p.pos] || {}) };
+    if (p.tmpMods?.length) Object.entries(tmpOf(p)).forEach(([k, v]) => { b[k] = (b[k] || 0) + v; });
+    if (!Object.keys(b).length) { delete p.fx; delete p.fxOvr; return; }
     p.fx = b;
     p.fxOvr = ovrBoost(p, b);
   });

@@ -22,6 +22,7 @@ import { extensionAsk, processAIContracts, releaseToMarket } from "./season/cont
 import { computeSeasonAwards, applyCareerRollover } from "./season/legacy.js";
 import { snapshotLeaders, archiveSeason } from "./season/archive.js";
 import { ensureCoachingState } from "./engine/coachesGen.js";
+import { ensureEventsState, rollWeeklyEvents, resolveEvent, checkPromises, tickTempMods, withWeekMods } from "./season/events.js";
 import { runCoachingCarousel, applyCoachDevelopment, hireCoach, fireCoach, renewCoach } from "./season/coachingCarousel.js";
 import { newCareerState, AI_TEND } from "./season/careerState.js";
 import { TopBar, BottomNav } from "./components/ui.jsx";
@@ -29,7 +30,7 @@ import { MenuScreen, NewCareerScreen, FiredScreen } from "./screens/MenuScreens.
 import { TeamDetailScreen, PlayerDetailScreen } from "./screens/TeamAndPlayer.jsx";
 import { HubScreen } from "./screens/HubScreen.jsx";
 import { RosterScreen, DepthChartScreen, TacticsScreen, ContractsScreen, StaffScreen } from "./screens/TeamManagementScreens.jsx";
-import { ScheduleScreen, ResultsScreen, GameScreen, PressModal, HonorsScreen } from "./screens/SeasonScreens.jsx";
+import { ScheduleScreen, ResultsScreen, GameScreen, PressModal, EventModal, HonorsScreen } from "./screens/SeasonScreens.jsx";
 import { HistoryScreen } from "./screens/HistoryScreen.jsx";
 import { FreeAgencyScreen, FreeAgentDetailScreen, DraftScreen, ProspectDetailScreen, StatsScreen, TradeScreen, CoachMarketScreen } from "./screens/MarketScreens.jsx";
 
@@ -130,6 +131,16 @@ export default function App() {
 
   function go(s) { setScreen(s); }
 
+  // ---- eventos dinâmicos ----
+  function onChooseEvent(eventUid, optionIdx) {
+    setCareer((prev) => {
+      const c = structuredClone(prev);
+      resolveEvent(c, eventUid, optionIdx, mulberry32(seedFromString(c.id + "-evchoice-" + eventUid)));
+      return c;
+    });
+  }
+  function onDismissNotice(id) { setCareer((p) => ({ ...p, eventNotices: (p.eventNotices || []).filter((n) => n.id !== id) })); }
+
   // ---- comissão técnica ----
   function staffAction(fn) {
     const c = structuredClone(career);
@@ -146,6 +157,8 @@ export default function App() {
   function onCreateCareer(teamAbbr, coachName) {
     const c = newCareerState(teamAbbr, coachName);
     ensureCoachingState(c, mulberry32(seedFromString(c.id + "-staff")));
+    ensureEventsState(c);
+    c.pendingEvents = rollWeeklyEvents(c, mulberry32(seedFromString(c.id + "-ev-" + c.year + "-1")));
     setCareer(c);
     setScreen("hub");
   }
@@ -156,6 +169,7 @@ export default function App() {
         const loaded = JSON.parse(raw);
         upgradeCareerPlayers(loaded); // saves antigos (2 atributos) -> novos atributos, mantendo o OVR
         ensureCoachingState(loaded, mulberry32(seedFromString(loaded.id + "-staff"))); // comissão técnica em saves antigos
+        ensureEventsState(loaded); // eventos/promessas em saves antigos
         setCareer(loaded); setScreen("hub");
       }
     } catch (e) {}
@@ -212,8 +226,8 @@ export default function App() {
 
       if (myGame) {
         const tendencies = {
-          home: myGame.home === c.teamAbbr ? c.tendencies : AI_TEND,
-          away: myGame.away === c.teamAbbr ? c.tendencies : AI_TEND,
+          home: myGame.home === c.teamAbbr ? withWeekMods(c.tendencies, c.weekMods) : AI_TEND,
+          away: myGame.away === c.teamAbbr ? withWeekMods(c.tendencies, c.weekMods) : AI_TEND,
         };
         const beforeH = snapshotRosterStats(c.leagueTeams[myGame.home].roster);
         const beforeA = snapshotRosterStats(c.leagueTeams[myGame.away].roster);
@@ -295,6 +309,11 @@ export default function App() {
         }
       });
 
+      // Eventos: cobra as promessas com o resultado/box score deste jogo e expira modificadores temporários.
+      ensureEventsState(c);
+      checkPromises(c, myGame, mulberry32(seedFromString(c.id + "-promise-" + c.year + "-" + c.week)));
+      tickTempMods(c);
+
       const moraleEvents = updateWeeklyMorale(c.leagueTeams);
       moraleEvents.filter((e) => e.teamAbbr === c.teamAbbr).forEach((e) => {
         c.news.push(e.type === "unhappy" ? `😠 ${e.name} está infeliz com a situação no time.` : `😊 ${e.name} está em alta, feliz com o momento no time.`);
@@ -327,10 +346,13 @@ export default function App() {
         }
       }
       c.week += 1;
+      // Eventos da PRÓXIMA semana (o usuário responde no Hub antes de jogar).
+      c.pendingEvents = c.week <= 17 ? rollWeeklyEvents(c, mulberry32(seedFromString(c.id + "-ev-" + c.year + "-" + c.week))) : [];
       return c;
     }
   }
   function playWeek() {
+    if (career?.phase === "season" && career.pendingEvents?.length) return; // responda os eventos primeiro
     setCareer(advanceWeek);
     setScreen("game");
   }
@@ -517,6 +539,8 @@ export default function App() {
       c.year += 1;
       c.week = 1;
       c.phase = "season";
+      ensureEventsState(c);
+      c.pendingEvents = rollWeeklyEvents(c, mulberry32(seedFromString(c.id + "-ev-" + c.year + "-1")));
       c.lastGame = null;
       c.playoffs = null;
       c.draftClass = null;
@@ -531,7 +555,7 @@ export default function App() {
   // A cada semana reordena o depth chart do seu time (autoSortDepth) e descarta
   // coletivas/eventos de imprensa. Para sozinha só se você for demitido.
   function simSeason() {
-    if (simProgress || !career || career.phase === "offseason") return;
+    if (simProgress || !career || career.phase === "offseason" || career.pendingEvents?.length) return;
     let c = structuredClone(career);
     autoSortDepth(c.leagueTeams[c.teamAbbr]);
     let done = 0;
@@ -541,6 +565,7 @@ export default function App() {
       if (c.phase === "offseason" || c.leagueTeams[c.teamAbbr].ownerConfidence <= 0) return finish();
       c = c.phase === "season" ? advanceWeek(c) : advancePlayoffRound(c);
       c.pressPending = null;
+      c.pendingEvents = []; // na simulação em lote os eventos são descartados
       if (c.lastGame && !c.lastGame.resolved) {
         if (c.lastGame.newsLine) c.news.push(c.lastGame.newsLine);
         c.lastGame.resolved = true;
@@ -839,7 +864,7 @@ export default function App() {
     <div className="min-h-screen bg-[#0B1220] text-slate-100 font-sans">
       <TopBar team={myTeam} career={career} />
       <div className="px-4 pt-4 max-w-lg mx-auto">
-        {screen === "hub" && <HubScreen career={career} myTeam={myTeam} go={go} onPlayWeek={onHubAction} onSimPlayoffRound={onHubAction} onSimSeason={simSeason} onDismissAlert={onDismissAlert} onOpenTeam={openTeam} />}
+        {screen === "hub" && <HubScreen career={career} myTeam={myTeam} go={go} onPlayWeek={onHubAction} onSimPlayoffRound={onHubAction} onSimSeason={simSeason} onDismissAlert={onDismissAlert} onDismissNotice={onDismissNotice} onOpenTeam={openTeam} />}
         {screen === "roster" && <RosterScreen myTeam={myTeam} onOpenPlayer={(id) => openPlayer(id, myTeam.abbr)} />}
         {screen === "depth" && <DepthChartScreen myTeam={myTeam} onSwap={swapSlot} onAutoSort={autoSortDepthChart} />}
         {screen === "honors" && <HonorsScreen career={career} onBack={() => go("hub")} onOpenPlayer={openPlayer} />}
@@ -862,6 +887,7 @@ export default function App() {
       </div>
       <BottomNav screen={screen} go={go} hasUnwatchedGame={!!(career.lastGame && (career.gameRevealCount ?? 0) < career.lastGame.log.length)} />
       {career.pressPending && <PressModal event={career.pressPending} onChoose={choosePress} />}
+      {!career.pressPending && career.pendingEvents?.[0] && <EventModal event={career.pendingEvents[0]} onChoose={onChooseEvent} />}
       {simProgress && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center">
           <div className="w-64 text-center">

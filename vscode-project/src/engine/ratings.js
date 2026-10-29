@@ -9,7 +9,7 @@
 // Valor do atributo já com o bônus temporário da comissão técnica (p.fx), ou null se não existir.
 function rawAttr(p, key) {
   const v = p?.attrs?.[key];
-  return v == null ? null : Math.min(99, v + (p.fx?.[key] || 0));
+  return v == null ? null : Math.max(20, Math.min(99, v + (p.fx?.[key] || 0)));
 }
 function attr(p, key, fallback) {
   return rawAttr(p, key) ?? fallback ?? p?.ovr ?? 60;

@@ -690,4 +690,42 @@ function PressModal({ event, onChoose }) {
 // isn't on any team yet: no games/team info, just the scouting profile
 // and a big sign button.
 
-export { ScheduleScreen, ResultsScreen, GameScreen, PressModal, HonorsScreen, PlayoffPicture };
+
+// Modal dos eventos dinâmicos (entre as semanas). Mostra a prévia do impacto como setas
+// (sem números exatos); "❓" = resultado incerto.
+const EVENT_CAT = {
+  crisis: { icon: "⚠️", label: "Crise", color: "#f87171" }, positive: { icon: "🌟", label: "Momento positivo", color: "#4ade80" },
+  strategy: { icon: "📋", label: "Reunião tática", color: "#38bdf8" }, rivalry: { icon: "🔥", label: "Rivalidade", color: "#fb923c" },
+  media: { icon: "📰", label: "Mídia", color: "#a78bfa" }, relations: { icon: "🤝", label: "Relações e promessas", color: "#fbbf24" },
+};
+function EventModal({ event, onChoose }) {
+  if (!event) return null;
+  const cat = EVENT_CAT[event.category] || { icon: "📌", label: "Evento", color: "#94a3b8" };
+  return (
+    <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-30 p-4 overflow-y-auto">
+      <div className="bg-[#131B2E] border border-white/10 rounded-lg p-5 w-full max-w-md my-4">
+        <div className="text-xs font-semibold mb-2" style={{ color: cat.color }}>{cat.icon} {cat.label} · Semana {event.week}</div>
+        <h3 className="text-lg font-black leading-tight mb-2">{event.title}</h3>
+        <p className="mb-4 text-sm text-slate-200 leading-relaxed">{event.body}</p>
+        <div className="space-y-2">
+          {event.options.map((o, i) => (
+            <button key={i} onClick={() => onChoose(event.uid, i)} className="w-full text-left px-3 py-2.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10">
+              <div className="text-sm font-semibold">{o.label}</div>
+              {o.chips?.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                  {o.chips.map((ch, k) => (
+                    <span key={k} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${ch.uncertain ? "text-slate-300 border-white/15 bg-white/5" : ch.dir > 0 ? "text-emerald-300 border-emerald-400/30 bg-emerald-400/10" : ch.dir < 0 ? "text-red-300 border-red-400/30 bg-red-400/10" : "text-slate-300 border-white/15 bg-white/5"}`}>
+                      {ch.uncertain ? "❓" : ch.dir > 0 ? (ch.big ? "▲▲" : "▲") : ch.dir < 0 ? (ch.big ? "▼▼" : "▼") : "•"} {ch.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export { ScheduleScreen, ResultsScreen, GameScreen, PressModal, EventModal, HonorsScreen, PlayoffPicture };
