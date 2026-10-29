@@ -22,6 +22,7 @@ import { extensionAsk, processAIContracts, releaseToMarket } from "./season/cont
 import { computeSeasonAwards, applyCareerRollover } from "./season/legacy.js";
 import { snapshotLeaders, archiveSeason } from "./season/archive.js";
 import { ensureCoachingState } from "./engine/coachesGen.js";
+import { ensureAllTimeLeaders, markRetiredLeaders } from "./season/allTime.js";
 import { ensureEventsState, rollWeeklyEvents, resolveEvent, checkPromises, tickTempMods, withWeekMods } from "./season/events.js";
 import { runCoachingCarousel, applyCoachDevelopment, hireCoach, fireCoach, renewCoach } from "./season/coachingCarousel.js";
 import { newCareerState, AI_TEND } from "./season/careerState.js";
@@ -158,6 +159,7 @@ export default function App() {
     const c = newCareerState(teamAbbr, coachName);
     ensureCoachingState(c, mulberry32(seedFromString(c.id + "-staff")));
     ensureEventsState(c);
+    ensureAllTimeLeaders(c);
     c.pendingEvents = rollWeeklyEvents(c, mulberry32(seedFromString(c.id + "-ev-" + c.year + "-1")));
     setCareer(c);
     setScreen("hub");
@@ -170,6 +172,7 @@ export default function App() {
         upgradeCareerPlayers(loaded); // saves antigos (2 atributos) -> novos atributos, mantendo o OVR
         ensureCoachingState(loaded, mulberry32(seedFromString(loaded.id + "-staff"))); // comissão técnica em saves antigos
         ensureEventsState(loaded); // eventos/promessas em saves antigos
+        ensureAllTimeLeaders(loaded); // histórico de líderes em saves antigos
         setCareer(loaded); setScreen("hub");
       }
     } catch (e) {}
@@ -505,7 +508,7 @@ export default function App() {
       const leadersSnap = snapshotLeaders(c.leagueTeams);
 
       const awards = computeSeasonAwards(c.leagueTeams, c.year);
-      const rolloverNews = applyCareerRollover(c.leagueTeams, awards);
+      const rolloverNews = applyCareerRollover(c.leagueTeams, awards, c.allTimeLeaders); // também atualiza o Top 100 histórico
       c.news.push(...rolloverNews);
       const awardCard = (a) => a && { playerId: a.p.id, name: a.p.name, pos: a.p.pos, ovr: a.p.ovr, teamAbbr: a.t.abbr };
       c.lastSeasonAwards = {
@@ -526,7 +529,8 @@ export default function App() {
       if (myAwardWinner) { myTeam.ownerConfidence = Math.min(100, myTeam.ownerConfidence + 5); myTeam.fanSupport = Math.min(100, myTeam.fanSupport + 5); }
       if (awards.coachOfYear?.abbr === c.teamAbbr) { myTeam.ownerConfidence = Math.min(100, myTeam.ownerConfidence + 8); c.news.push(`📋 Você foi reconhecido como o técnico do ano de ${c.year}!`); }
 
-      const { news: retirementNews, retirees } = retireAndRefreshLeague(c.leagueTeams, c.year + 1);
+      const { news: retirementNews, retirees } = retireAndRefreshLeague(c.leagueTeams, c.year + 1, c.allTimeLeaders); // marca isRetired nos líderes históricos
+      markRetiredLeaders(c); // varredura de segurança: quem não está em elenco/mercado/draft também vira isRetired
       c.news.push(...retirementNews.slice(0, 5));
       c.news.push(...applyCoachDevelopment(c, mulberry32(seedFromString(c.id + "-mentor-" + c.year))));
       sortAIDepth(c);

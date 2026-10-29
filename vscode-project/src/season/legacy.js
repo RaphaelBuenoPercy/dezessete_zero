@@ -1,3 +1,5 @@
+import { updateLeadersFromTeams } from "./allTime.js";
+
 // ============================================================
 // SEASON AWARDS & CAREER LEGACY
 //
@@ -78,7 +80,8 @@ function accoladeLabel(key, year) {
 // played, and stamps any awards they won onto their accolades list. Must
 // run BEFORE resetSeasonStats() wipes the season, and before retirement
 // swaps a player out of the league.
-function applyCareerRollover(leagueTeams, awards) {
+// allTimeLeaders (opcional): depois de somar seasonStats em careerStats, atualiza o Top 100 histórico.
+function applyCareerRollover(leagueTeams, awards, allTimeLeaders) {
   const news = [];
   function grant(entry, key) {
     if (!entry) return;
@@ -108,6 +111,9 @@ function applyCareerRollover(leagueTeams, awards) {
       p.seasonsPlayed = (p.seasonsPlayed || 0) + 1;
     });
   });
+
+  // Líderes históricos: careerStats já inclui a temporada que acabou (e ainda ninguém se aposentou).
+  if (allTimeLeaders) updateLeadersFromTeams(allTimeLeaders, leagueTeams);
 
   return news;
 }

@@ -2,6 +2,7 @@ import { mulberry32, seedFromString } from "../lib/rng.js";
 import { rosterSlotsFor } from "../data/rosterSlots.js";
 import { makeName } from "../data/names.js";
 import { agePlayer, makePlayer, normalizeSalaries } from "../engine/playerGen.js";
+import { markLeadersRetired } from "./allTime.js";
 
 // Offseason aging/retirement pass, run on every team once a year.
 
@@ -20,10 +21,13 @@ function isLegendary(p) {
   return false;
 }
 
-function retireAndRefreshLeague(teams, year) {
+// allTimeLeaders (opcional): quem sai do elenco (aposentadoria ou fim de contrato) vira isRetired: true
+// nas listas históricas, mesmo sem entrar no Hall da Fama.
+function retireAndRefreshLeague(teams, year, allTimeLeaders) {
   const rng = mulberry32(seedFromString("retire-" + year));
   const news = [];
   const retirees = [];
+  const leftLeague = [];
   Object.values(teams).forEach((t) => {
     const teamSlots = rosterSlotsFor(t.scheme || "4-3");
     t.roster.forEach((p, i) => {
@@ -31,6 +35,7 @@ function retireAndRefreshLeague(teams, year) {
       const retiring = p.age > 34 || p.ovr < 44;
       const expired = p.years <= 0;
       if (retiring || expired) {
+        leftLeague.push(p.id);
         const legendary = retiring && isLegendary(p);
         if (retiring) {
           retirees.push({
@@ -54,6 +59,7 @@ function retireAndRefreshLeague(teams, year) {
     });
     normalizeSalaries(t.roster, rng);
   });
+  if (allTimeLeaders) markLeadersRetired(allTimeLeaders, leftLeague);
   return { news, retirees };
 }
 
