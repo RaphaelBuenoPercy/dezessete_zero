@@ -256,10 +256,10 @@ const NAV = [
   { key: "trade", label: "Trocas", icon: "🔄" },
   { key: "stats", label: "Stats", icon: "📊" },
 ];
-function BottomNav({ screen, go, disabled, hasUnwatchedGame }) {
+function BottomNav({ screen, go, disabled, hasUnwatchedGame, items = NAV }) {
   return (
     <div className="fixed bottom-0 inset-x-0 bg-[#0B1220]/97 backdrop-blur border-t border-white/10 flex justify-around py-1.5 z-20 overflow-x-auto">
-      {NAV.map((n) => {
+      {items.map((n) => {
         const active = screen === n.key;
         return (
           <button key={n.key} disabled={disabled} onClick={() => go(n.key)}

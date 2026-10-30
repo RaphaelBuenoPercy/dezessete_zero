@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { mulberry32, seedFromString, randInt, pick, clamp } from "./lib/rng.js";
-import { CAP } from "./data/teams.js";
+import { CAP, TEAM_META } from "./data/teams.js";
 import { buildSchedule, generateFreeAgents, generateDraftClass, capUsed, upgradeCareerPlayers } from "./engine/playerGen.js";
 import { snapshotRosterStats, diffRosterStats, simGameDetailed, simGameQuick } from "./engine/simulation.js";
 import { buildPressEvent } from "./engine/press.js";
@@ -27,6 +27,7 @@ import { ensureEventsState, rollWeeklyEvents, resolveEvent, checkPromises, tickT
 import { runCoachingCarousel, applyCoachDevelopment, hireCoach, fireCoach, renewCoach } from "./season/coachingCarousel.js";
 import { newCareerState, AI_TEND } from "./season/careerState.js";
 import { TopBar, BottomNav } from "./components/ui.jsx";
+import { SPECTATOR_STUB, SpectatorTopBar, SpectatorScreen, SpectatorMenuSection } from "./screens/SpectatorScreens.jsx";
 import { MenuScreen, NewCareerScreen, FiredScreen } from "./screens/MenuScreens.jsx";
 import { TeamDetailScreen, PlayerDetailScreen } from "./screens/TeamAndPlayer.jsx";
 import { HubScreen } from "./screens/HubScreen.jsx";
@@ -60,7 +61,7 @@ function computeStreak(schedule, abbr) {
 // last slot) — reused by both the manual pick and the auto-sim path.
 function maybeFireDraftGrade(c, rng) {
   const total = c.draftOrder.length * 7;
-  if (c.draftPickIndex !== total) return;
+  if (c.draftPickIndex !== total || !c.teamAbbr) return;   // espectador não tem coletiva
   const mine = (c.draftHistory || []).filter((h) => h.teamAbbr === c.teamAbbr);
   const steals = mine.filter((h) => h.projectedRound && ["ROUBADA!", "Ótimo valor"].includes(pickValueRead(h.projectedRound, h.round).label)).length;
   if (!c.pressPending) c.pressPending = buildPressEvent("draft_grade", { pickCount: mine.length, steals }, rng);
@@ -99,6 +100,8 @@ export default function App() {
   }
   function closeDetail() { setScreen(detail?.from || "hub"); setDetail(null); }
   const [saves, setSaves] = useState([]);
+  const [spectatorSaves, setSpectatorSaves] = useState([]);
+  const simCancel = useRef(false);
   const [career, setCareer] = useState(null);
   const [pressChoice, setPressChoice] = useState(null);
   const [swapFrom, setSwapFrom] = useState(null);
@@ -106,7 +109,7 @@ export default function App() {
 
   const refreshSaves = useCallback(() => {
     try {
-      const list = [];
+      const list = [], specList = [];
       for (let i = 0; i < localStorage.length; i++) {
         const k = localStorage.key(i);
         if (!k || !k.startsWith("nflcareer:")) continue;
@@ -114,12 +117,13 @@ export default function App() {
           const raw = localStorage.getItem(k);
           if (raw) {
             const c = JSON.parse(raw);
-            list.push({ id: c.id, coachName: c.coachName, teamAbbr: c.teamAbbr, year: c.year, week: c.week });
+            if (c.spectator) specList.push({ id: c.id, label: c.forkOf ? "Espectador (realidade alternativa)" : "Espectador", year: c.year, titles: Object.keys(c.seasonArchive || {}).length });
+            else list.push({ id: c.id, coachName: c.coachName, teamAbbr: c.teamAbbr, year: c.year, week: c.week });
           }
         } catch (e) {}
       }
-      setSaves(list);
-    } catch (e) { setSaves([]); }
+      setSaves(list); setSpectatorSaves(specList);
+    } catch (e) { setSaves([]); setSpectatorSaves([]); }
   }, []);
 
   useEffect(() => { refreshSaves(); }, [refreshSaves]);
@@ -155,6 +159,28 @@ export default function App() {
   function onDismissAlert(id) { setCareer((p) => ({ ...p, staffAlerts: (p.staffAlerts || []).filter((a) => a.id !== id) })); }
 
   function onNewCareer() { setScreen("newcareer"); }
+
+  // ---- modo espectador (sem time) ----
+  function onStartSpectator() {
+    const c = newCareerState(TEAM_META[0].abbr, "Espectador");   // só para montar a liga; o time é descartado abaixo
+    c.spectator = true; c.teamAbbr = null; c.id = "SPEC-" + Date.now();
+    c.news = ["👁️ Modo espectador: acompanhe a liga e simule quantas temporadas quiser."];
+    ensureCoachingState(c, mulberry32(seedFromString(c.id + "-staff")));
+    ensureEventsState(c);
+    ensureAllTimeLeaders(c);
+    c.pendingEvents = [];
+    setCareer(c);
+    setScreen("spec");
+  }
+  // Copia a liga neste momento para um novo save: cada cópia segue um futuro diferente (as sementes dependem do id).
+  function forkSpectator() {
+    setCareer((prev) => {
+      const c = structuredClone(prev);
+      c.forkOf = prev.id; c.id = "SPEC-" + Date.now();
+      c.news = [`🔀 Realidade alternativa criada a partir de ${prev.year}.`];
+      return c;
+    });
+  }
   function onCreateCareer(teamAbbr, coachName) {
     const c = newCareerState(teamAbbr, coachName);
     ensureCoachingState(c, mulberry32(seedFromString(c.id + "-staff")));
@@ -173,7 +199,7 @@ export default function App() {
         ensureCoachingState(loaded, mulberry32(seedFromString(loaded.id + "-staff"))); // comissão técnica em saves antigos
         ensureEventsState(loaded); // eventos/promessas em saves antigos
         ensureAllTimeLeaders(loaded); // histórico de líderes em saves antigos
-        setCareer(loaded); setScreen("hub");
+        setCareer(loaded); setScreen(loaded.spectator ? "spec" : "hub");
       }
     } catch (e) {}
   }
@@ -182,11 +208,11 @@ export default function App() {
   }
   function onRestart() { setCareer(null); setScreen("menu"); refreshSaves(); }
 
-  const myTeam = career ? career.leagueTeams[career.teamAbbr] : null;
+  const myTeam = career && !career.spectator ? career.leagueTeams[career.teamAbbr] : null;
 
-  function advanceWeek(prev) {
+  function advanceWeek(prev, inPlace) {   // inPlace: o chamador já é dono do objeto (simulações em lote, sem clonar)
     {
-      const c = structuredClone(prev);
+      const c = inPlace ? prev : structuredClone(prev);
       const round = c.schedule[c.week - 1];
       const rng = mulberry32(seedFromString(c.id + "-w" + c.week));
 
@@ -323,7 +349,7 @@ export default function App() {
       });
 
       const myT = c.leagueTeams[c.teamAbbr];
-      if (myT.ownerConfidence < 25) {
+      if (!myT) { /* espectador: sem confiança do dono */ } else if (myT.ownerConfidence < 25) {
         if (!c.hotSeatWarned && !c.pressPending) { c.pressPending = buildPressEvent("hot_seat", {}, rng); c.hotSeatWarned = true; }
       } else if (myT.ownerConfidence >= 40) {
         c.hotSeatWarned = false;
@@ -350,7 +376,7 @@ export default function App() {
       }
       c.week += 1;
       // Eventos da PRÓXIMA semana (o usuário responde no Hub antes de jogar).
-      c.pendingEvents = c.week <= 17 ? rollWeeklyEvents(c, mulberry32(seedFromString(c.id + "-ev-" + c.year + "-" + c.week))) : [];
+      c.pendingEvents = !c.spectator && c.week <= 17 ? rollWeeklyEvents(c, mulberry32(seedFromString(c.id + "-ev-" + c.year + "-" + c.week))) : [];
       return c;
     }
   }
@@ -360,9 +386,9 @@ export default function App() {
     setScreen("game");
   }
 
-  function advancePlayoffRound(prev) {
+  function advancePlayoffRound(prev, inPlace) {
     {
-      const c = structuredClone(prev);
+      const c = inPlace ? prev : structuredClone(prev);
       const rng = mulberry32(seedFromString(c.id + "-po" + c.playoffs.roundLabel));
       const po = c.playoffs;
 
@@ -496,9 +522,9 @@ export default function App() {
     setScreen("game");
   }
 
-  function advanceToNextSeason() {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
+  function advanceSeasonYear(prev, inPlace) {
+    {
+      const c = inPlace ? prev : structuredClone(prev);
 
       if (!c.leagueRecords) c.leagueRecords = { single_game: {}, single_season: {} };
       checkSeasonRecords(c.leagueRecords, c.leagueTeams, c.year).forEach((b) => {
@@ -524,7 +550,7 @@ export default function App() {
       archiveSeason(c, leadersSnap);
       // A little recognition where it's due: the front office notices when
       // your own team produces hardware.
-      const myTeam = c.leagueTeams[c.teamAbbr];
+      const myTeam = c.leagueTeams[c.teamAbbr] || { ownerConfidence: 0, fanSupport: 0 };   // espectador: objeto descartável
       const myAwardWinner = [awards.mvp, awards.opoy, awards.dpoy, awards.oroy, awards.droy].some((a) => a?.t.abbr === c.teamAbbr);
       if (myAwardWinner) { myTeam.ownerConfidence = Math.min(100, myTeam.ownerConfidence + 5); myTeam.fanSupport = Math.min(100, myTeam.fanSupport + 5); }
       if (awards.coachOfYear?.abbr === c.teamAbbr) { myTeam.ownerConfidence = Math.min(100, myTeam.ownerConfidence + 8); c.news.push(`📋 Você foi reconhecido como o técnico do ano de ${c.year}!`); }
@@ -544,14 +570,17 @@ export default function App() {
       c.week = 1;
       c.phase = "season";
       ensureEventsState(c);
-      c.pendingEvents = rollWeeklyEvents(c, mulberry32(seedFromString(c.id + "-ev-" + c.year + "-1")));
+      c.pendingEvents = c.spectator ? [] : rollWeeklyEvents(c, mulberry32(seedFromString(c.id + "-ev-" + c.year + "-1")));
       c.lastGame = null;
       c.playoffs = null;
       c.draftClass = null;
       c.draftPickIndex = 0;
       c.news.push(`Temporada ${c.year} começando!`);
       return c;
-    });
+    }
+  }
+  function advanceToNextSeason() {
+    setCareer(advanceSeasonYear);
     setScreen("hub");
   }
 
@@ -567,7 +596,7 @@ export default function App() {
     const finish = () => { setCareer(c); setSimProgress(null); setScreen("hub"); };
     const step = () => {
       if (c.phase === "offseason" || c.leagueTeams[c.teamAbbr].ownerConfidence <= 0) return finish();
-      c = c.phase === "season" ? advanceWeek(c) : advancePlayoffRound(c);
+      c = c.phase === "season" ? advanceWeek(c, true) : advancePlayoffRound(c, true);
       c.pressPending = null;
       c.pendingEvents = []; // na simulação em lote os eventos são descartados
       if (c.lastGame && !c.lastGame.resolved) {
@@ -765,14 +794,18 @@ export default function App() {
     });
   }
 
+  // Uma onda de free agency entre os times de IA (também usada na offseason automática do espectador).
+  function faWave(c) {
+    if (!c.faMarket) c.faMarket = {};
+    const faRng = mulberry32(seedFromString(c.id + "-fa-advance-" + c.freeAgentPool.length + "-" + c.year + "-" + Math.floor(Math.random() * 1e6)));
+    aiOffersWave(c.leagueTeams, c.freeAgentPool, c.faMarket, faRng, { excludeAbbr: c.teamAbbr, needsPerTeam: 3 });
+    const signings = resolveMarket(c.leagueTeams, c.freeAgentPool, c.faMarket, faRng);
+    logSignings(c, signings);
+  }
   function advanceFreeAgencyMarket() {
     setCareer((prev) => {
       const c = structuredClone(prev);
-      if (!c.faMarket) c.faMarket = {};
-      const faRng = mulberry32(seedFromString(c.id + "-fa-advance-" + c.freeAgentPool.length + "-" + Date.now()));
-      aiOffersWave(c.leagueTeams, c.freeAgentPool, c.faMarket, faRng, { excludeAbbr: c.teamAbbr, needsPerTeam: 3 });
-      const signings = resolveMarket(c.leagueTeams, c.freeAgentPool, c.faMarket, faRng);
-      logSignings(c, signings);
+      faWave(c);
       return c;
     });
   }
@@ -800,33 +833,83 @@ export default function App() {
     });
   }
 
+  // Draft automático até a vez do usuário (no espectador não existe "vez do usuário": roda o draft inteiro).
+  function draftAuto(c) {
+    const rng = mulberry32(seedFromString(c.id + "-draftauto" + c.draftPickIndex));
+    const order = c.draftOrder;
+    const draftYear = c.year + 1;
+    const total = order.length * 7;
+    if (!c.draftHistory) c.draftHistory = [];
+    while (c.draftPickIndex < total) {
+      const round = Math.floor(c.draftPickIndex / order.length) + 1;
+      const pickInRound = (c.draftPickIndex % order.length) + 1;
+      const teamAbbr = resolvePickOwner(c.futurePicks, order, draftYear, round, c.draftPickIndex);
+      if (teamAbbr === c.teamAbbr) break;
+      if (!c.draftClass.length) break;
+      const t = c.leagueTeams[teamAbbr];
+      const prospect = pickForTeamAI(rng, t, c.draftClass) || c.draftClass[0];
+      const slot = findSlotForRookie(t.roster, prospect.pos);
+      insertPlayer(t.roster, slot, { ...prospect, slot });
+      c.draftHistory.push({ round, pick: pickInRound, teamAbbr, name: prospect.name, pos: prospect.pos, ovr: prospect.ovr, projectedRound: prospect.draftRound });
+      c.draftClass = c.draftClass.filter((p) => p.id !== prospect.id);
+      consumePick(c.futurePicks, order, draftYear, round, c.draftPickIndex);
+      c.draftPickIndex += 1;
+    }
+    maybeFireDraftGrade(c, rng);
+    sortAIDepth(c);
+  }
   function simToMyPick() {
     setCareer((prev) => {
       const c = structuredClone(prev);
-      const rng = mulberry32(seedFromString(c.id + "-draftauto" + c.draftPickIndex));
-      const order = c.draftOrder;
-      const draftYear = c.year + 1;
-      const total = order.length * 7;
-      if (!c.draftHistory) c.draftHistory = [];
-      while (c.draftPickIndex < total) {
-        const round = Math.floor(c.draftPickIndex / order.length) + 1;
-        const pickInRound = (c.draftPickIndex % order.length) + 1;
-        const teamAbbr = resolvePickOwner(c.futurePicks, order, draftYear, round, c.draftPickIndex);
-        if (teamAbbr === c.teamAbbr) break;
-        if (!c.draftClass.length) break;
-        const t = c.leagueTeams[teamAbbr];
-        const prospect = pickForTeamAI(rng, t, c.draftClass) || c.draftClass[0];
-        const slot = findSlotForRookie(t.roster, prospect.pos);
-        insertPlayer(t.roster, slot, { ...prospect, slot });
-        c.draftHistory.push({ round, pick: pickInRound, teamAbbr, name: prospect.name, pos: prospect.pos, ovr: prospect.ovr, projectedRound: prospect.draftRound });
-        c.draftClass = c.draftClass.filter((p) => p.id !== prospect.id);
-        consumePick(c.futurePicks, order, draftYear, round, c.draftPickIndex);
-        c.draftPickIndex += 1;
-      }
-      maybeFireDraftGrade(c, rng);
-      sortAIDepth(c);
+      draftAuto(c);
       return c;
     });
+  }
+
+  // ---- espectador: simulação rápida da liga inteira ----
+  // Uma "unidade" = 1 semana, 1 rodada de playoffs, ou a offseason inteira (free agency + draft + virada de ano).
+  function spectatorUnit(c) {
+    if (c.phase === "season") return advanceWeek(c, true);
+    if (c.phase === "playoffs") return advancePlayoffRound(c, true);
+    for (let i = 0; i < 4; i++) faWave(c);          // free agency entre os times de IA
+    if (c.draftClass?.length) draftAuto(c);         // draft completo
+    c = advanceSeasonYear(c, true);                 // prêmios, arquivo histórico, Top 100, aposentadorias, ano novo
+    c.pressPending = null;
+    // mantém o save leve em simulações longas
+    c.news = (c.news || []).slice(-40); c.draftHistory = []; c.tradeHistory = []; c.staffAlerts = []; c.eventNotices = [];
+    c.hcHires = (c.hcHires || []).slice(-20); c.lastGame = null;
+    return c;
+  }
+  // mode: "step" (1 unidade) | "season" (até a offseason) | número N de temporadas completas
+  function simSpectator(mode) {
+    if (simProgress || !career?.spectator) return;
+    simCancel.current = false;
+    let c = structuredClone(career);
+    let finished = 0, done = 0;
+    const target = typeof mode === "number" ? mode : 1;
+    const total = typeof mode === "number" ? mode * 24 : 24;
+    const finish = () => { setCareer(c); setSimProgress(null); setScreen("spec"); };
+    const unit = () => {
+      const wasOffseason = c.phase === "offseason";
+      c = spectatorUnit(c);
+      done++;
+      if (wasOffseason) finished++;
+    };
+    if (mode === "step") { unit(); setCareer(c); return; }
+    const stopNow = () => (mode === "season" ? c.phase === "offseason" : finished >= target);
+    const tick = () => {
+      if (simCancel.current || stopNow()) return finish();
+      const t0 = performance.now();
+      while (performance.now() - t0 < 14 && !stopNow()) unit();
+      if (stopNow()) return finish();
+      setSimProgress({
+        label: `Temporada ${c.year} · ${c.phase === "season" ? "semana " + c.week : c.phase === "playoffs" ? "playoffs" : "offseason"}`,
+        pct: Math.min(99, Math.round((done / total) * 100)),
+      });
+      setTimeout(tick, 0);
+    };
+    setSimProgress({ label: "Iniciando…", pct: 0 });
+    setTimeout(tick, 0);
   }
 
   // A trade offer is any mix of players and future picks on both sides.
@@ -859,7 +942,44 @@ export default function App() {
   if (screen === "menu" || !career) {
     return screen === "newcareer"
       ? <NewCareerScreen onCreate={onCreateCareer} onBack={() => setScreen("menu")} />
-      : <MenuScreen saves={saves} onNew={onNewCareer} onLoad={onLoadCareer} onDelete={onDeleteCareer} />;
+      : (
+        <>
+          <MenuScreen saves={saves} onNew={onNewCareer} onLoad={onLoadCareer} onDelete={onDeleteCareer} />
+          <SpectatorMenuSection saves={spectatorSaves} onStart={onStartSpectator} onLoad={onLoadCareer} onDelete={onDeleteCareer} />
+        </>
+      );
+  }
+
+  if (career.spectator) {
+    const SPEC_NAV = [
+      { key: "spec", label: "Liga", icon: "👁️" }, { key: "schedule", label: "Tabela", icon: "📅" },
+      { key: "results", label: "Resultados", icon: "🏟️" }, { key: "stats", label: "Stats", icon: "📊" }, { key: "history", label: "Histórico", icon: "📚" },
+    ];
+    const navKey = ["hub", "game", "menu"].includes(screen) ? "spec" : screen;
+    return (
+      <div className="min-h-screen bg-[#0B1220] text-slate-100 font-sans">
+        <SpectatorTopBar career={career} onExit={onRestart} disabled={!!simProgress} />
+        <div className="px-4 pt-4 max-w-lg mx-auto">
+          {navKey === "spec" && <SpectatorScreen career={career} busy={!!simProgress} onStep={() => simSpectator("step")} onSimToEnd={() => simSpectator("season")} onSimSeasons={(n) => simSpectator(n)} onFork={forkSpectator} onOpenTeam={openTeam} go={go} />}
+          {screen === "schedule" && <ScheduleScreen career={career} myTeam={SPECTATOR_STUB} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
+          {screen === "results" && <ResultsScreen career={career} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
+          {screen === "stats" && <StatsScreen career={career} myTeam={SPECTATOR_STUB} onOpenPlayer={openPlayer} onOpenTeam={openTeam} />}
+          {screen === "history" && <HistoryScreen career={career} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
+          {screen === "teamDetail" && detail?.type === "team" && <TeamDetailScreen abbr={detail.abbr} career={career} myTeam={SPECTATOR_STUB} onBack={() => { setScreen(detail?.from && detail.from !== "hub" ? detail.from : "spec"); setDetail(null); }} onOpenPlayer={openPlayer} />}
+          {screen === "playerDetail" && detail?.type === "player" && <PlayerDetailScreen playerId={detail.playerId} teamAbbr={detail.teamAbbr} career={career} onBack={() => { setScreen(detail?.from && detail.from !== "hub" ? detail.from : "spec"); setDetail(null); }} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
+        </div>
+        <BottomNav screen={navKey} go={go} items={SPEC_NAV} disabled={!!simProgress} />
+        {simProgress && (
+          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center">
+            <div className="w-64 text-center">
+              <div className="text-sm mb-2">Simulando… {simProgress.label}</div>
+              <div className="h-2 bg-white/10 rounded mb-4"><div className="h-2 bg-white rounded" style={{ width: simProgress.pct + "%" }} /></div>
+              <button onClick={() => { simCancel.current = true; }} className="text-xs text-slate-300 underline">Cancelar</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
 
   if (screen === "fired") return <FiredScreen career={career} onRestart={onRestart} />;

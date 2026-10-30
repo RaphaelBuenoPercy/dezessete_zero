@@ -67,7 +67,7 @@ function stripBox(entry) {
 
 function pruneArchive(c) {
   const years = Object.keys(c.seasonArchive).map(Number).sort((a, b) => b - a);
-  years.slice(KEEP_BOX_SEASONS).forEach((y) => {
+  years.slice(c.spectator ? 1 : KEEP_BOX_SEASONS).forEach((y) => {   // espectador: guarda menos para o save não estourar
     const e = c.seasonArchive[y];
     if (!e.boxPruned) stripBox(e);
   });
@@ -76,7 +76,7 @@ function pruneArchive(c) {
 // Chamar em advanceToNextSeason, depois de c.lastSeasonAwards estar pronto e
 // antes de aposentar jogadores / zerar tabela / gerar novo calendário.
 function archiveSeason(c, leaders) {
-  const t = c.leagueTeams[c.teamAbbr];
+  const t = c.leagueTeams[c.teamAbbr] || { wins: 0, losses: 0, ties: 0 };   // espectador não tem time
   c.seasonArchive = c.seasonArchive || {};
   c.seasonArchive[c.year] = {
     year: c.year,

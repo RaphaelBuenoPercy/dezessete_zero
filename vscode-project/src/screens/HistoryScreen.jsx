@@ -124,7 +124,7 @@ function HistoryScreen({ career, onOpenTeam, onOpenPlayer }) {
 
       <Card className="mb-3">
         <div className="flex items-center justify-between text-sm">
-          <span>Seu time: <b>{a.myAbbr}</b> {rec.wins}-{rec.losses}{rec.ties ? `-${rec.ties}` : ""}</span>
+          {a.myAbbr ? <span>Seu time: <b>{a.myAbbr}</b> {rec.wins}-{rec.losses}{rec.ties ? `-${rec.ties}` : ""}</span> : <span className="text-slate-400">Temporada {a.year}</span>}
           {a.champion && <span className="flex items-center gap-1.5 text-amber-400 text-xs font-bold">🏆 <TeamLogo abbr={a.champion} size={18} />{a.champion}</span>}
         </div>
         {a.boxPruned && <div className="text-[11px] text-slate-500 mt-1">Box scores desta temporada foram removidos para economizar espaço.</div>}

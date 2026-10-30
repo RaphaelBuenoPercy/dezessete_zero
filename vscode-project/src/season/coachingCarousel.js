@@ -219,7 +219,7 @@ function runCoachingCarousel(c, rng) {
 
   // vagas na comissão do usuário (lembrete)
   const mine = c.leagueTeams[my];
-  ["OC", "DC"].forEach((role) => {
+  if (mine) ["OC", "DC"].forEach((role) => {
     if (!mine.coaches[role] && !(c.staffAlerts || []).some((a) => a.role === role)) pushAlert(c, "vacancy", `🧢 Você está sem ${ROLE_LABEL[role]}.`, role);
   });
   return news;

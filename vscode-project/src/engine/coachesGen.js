@@ -207,16 +207,18 @@ function ensureCoachingState(c, rng) {
   });
   c.staffAlerts ||= [];
   c.hcHires ||= [];
-  const mine = c.leagueTeams[c.teamAbbr];
-  if (!c.staffInit) {
-    mine.coaches = { OC: null, DC: null, SC: null };
-    c.staffAlerts.push({ id: "init", kind: "vacancy", role: null, year: c.year,
-      text: "🧢 Você é o Head Coach: contrate seus coordenadores (ofensivo, defensivo e de special teams) no mercado de técnicos." });
-    c.staffInit = true;
-  } else if (!("SC" in mine.coaches)) {
-    mine.coaches.SC = null;
-    c.staffAlerts.push({ id: "sc-init", kind: "vacancy", role: "SC", year: c.year,
-      text: "🦵 Novidade: agora existe o Coordenador de Special Teams (chutadores e punters). Contrate um no mercado." });
+  if (!c.spectator) {   // no modo espectador não existe 'time do usuário'
+    const mine = c.leagueTeams[c.teamAbbr];
+    if (!c.staffInit) {
+      mine.coaches = { OC: null, DC: null, SC: null };
+      c.staffAlerts.push({ id: "init", kind: "vacancy", role: null, year: c.year,
+        text: "🧢 Você é o Head Coach: contrate seus coordenadores (ofensivo, defensivo e de special teams) no mercado de técnicos." });
+      c.staffInit = true;
+    } else if (!("SC" in mine.coaches)) {
+      mine.coaches.SC = null;
+      c.staffAlerts.push({ id: "sc-init", kind: "vacancy", role: "SC", year: c.year,
+        text: "🦵 Novidade: agora existe o Coordenador de Special Teams (chutadores e punters). Contrate um no mercado." });
+    }
   }
   c.coachesMarket ||= [];
   // saves da versão anterior: coordenadores sem os fatores ocultos
