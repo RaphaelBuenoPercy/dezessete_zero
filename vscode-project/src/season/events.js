@@ -102,14 +102,15 @@ function applyEffects(c, effects, rng, out = []) {
 
 // Chips de prévia do que a opção mexe (direção, sem números exatos).
 const CHIP_LABEL = { owner: "Dono", fan: "Torcida", teamMorale: "Moral do time", morale: "Moral do jogador", dev: "Evolução", injury: "Disponibilidade",
-  salary: "Salário", heal: "Lesões", healTeam: "Lesões", weekMod: "Tática da semana", swap: "Escalação", promise: "Promessa ⚠️", tmp: "Atributos temporários" };
+  salary: "Salário", heal: "Lesões", healTeam: "Lesões", reveal: "Informação do prospect", revealTrait: "Perfil pessoal", points: "Pontos de scouting", wish: "Pedido (dono/torcida)", weekMod: "Tática da semana", swap: "Escalação", promise: "Promessa ⚠️", tmp: "Atributos temporários" };
 function chipsFor(effects, uncertain = false, acc = {}) {
   (effects || []).forEach((e) => {
     if (e.t === "chance") { chipsFor(e.win, true, acc); chipsFor(e.lose, true, acc); return; }
     if (e.t === "text") return;
     let label = CHIP_LABEL[e.t], dir = 0, big = false;
     if (["owner", "fan", "teamMorale", "morale", "dev"].includes(e.t)) { dir = Math.sign(e.v); big = Math.abs(e.v) >= 6; }
-    else if (e.t === "heal" || e.t === "healTeam") dir = 1;
+    else if (e.t === "heal" || e.t === "healTeam" || e.t === "reveal" || e.t === "revealTrait") dir = 1;
+    else if (e.t === "points") { dir = Math.sign(e.v); big = Math.abs(e.v) >= 3; }
     else if (e.t === "injury") dir = -1;
     else if (e.t === "salary") dir = e.mult > 1 ? -1 : 1;
     else if (e.t === "tmp") {
@@ -562,4 +563,4 @@ function withWeekMods(tend, mods) {
   return { ...tend, passRatio: clamp((tend.passRatio ?? 0.55) + (mods.passRatio || 0), 0.05, 0.95), aggressive: clamp((tend.aggressive ?? 0.5) + (mods.aggressive || 0), 0, 1) };
 }
 
-export { CATEGORY, EVENTS, ensureEventsState, rollWeeklyEvents, resolveEvent, checkPromises, tickTempMods, withWeekMods };
+export { applyEffects, opt, previewOf, CATEGORY, EVENTS, ensureEventsState, rollWeeklyEvents, resolveEvent, checkPromises, tickTempMods, withWeekMods };

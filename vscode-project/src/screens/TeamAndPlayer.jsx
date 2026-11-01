@@ -6,6 +6,7 @@ import { Bar, Card, TeamLogo, PosPill, primaryStatLine, devLabel, AttrBars } fro
 import { moraleLabel } from "../season/morale.js";
 import { rivalryTier, headToHeadLine } from "../season/rivalries.js";
 import { teamIdentity } from "../season/teamIdentity.js";
+import { allTimeRanksFor } from "../season/allTime.js";
 
 // Full-page detail views for a team and for a player already on a roster.
 
@@ -156,6 +157,9 @@ function PlayerDetailScreen({ playerId, teamAbbr, career, onBack, onOpenTeam, on
   const subAttrs = SUB_ATTRS[player.pos] || [];
   const line = primaryStatLine(player);
   const careerLine = primaryStatLine({ pos: player.pos, seasonStats: player.careerStats });
+  const historicRanks = allTimeRanksFor(career, player, 10);
+  const allPro1 = (player.accolades || []).filter((a) => a.startsWith("All-Pro") && !a.startsWith("All-Pro 2")).length;   // inclui o formato antigo "All-Pro 2026"
+  const allPro2 = (player.accolades || []).filter((a) => a.startsWith("All-Pro 2")).length;
   const classmate = player.rookieYear ? Object.values(career.leagueTeams)
     .flatMap((t) => t.roster.filter((p) => p.rookieYear === player.rookieYear && p.pos === player.pos && p.id !== player.id).map((p) => ({ p, teamAbbr: t.abbr })))
     .sort((a, b) => b.p.ovr - a.p.ovr)[0] : null;
@@ -201,14 +205,22 @@ function PlayerDetailScreen({ playerId, teamAbbr, career, onBack, onOpenTeam, on
         <div className="text-sm font-semibold mb-2">Estatísticas da temporada</div>
         {line ? <div className="text-sm text-slate-300">{line}</div> : <div className="text-xs text-slate-500">Sem estatísticas registradas ainda.</div>}
       </Card>
-      {(player.seasonsPlayed > 0 || player.accolades?.length > 0) && (
+      {(player.seasonsPlayed > 0 || player.accolades?.length > 0 || historicRanks.length > 0) && (
         <Card className="mb-3">
           <div className="text-sm font-semibold mb-2">Carreira</div>
           <div className="text-xs text-slate-500 mb-2">{player.seasonsPlayed || 0} temporada(s) na liga.</div>
           {careerLine ? <div className="text-sm text-slate-300 mb-2">{careerLine}</div> : null}
+          {(allPro1 > 0 || allPro2 > 0) && (
+            <div className="text-xs font-semibold text-amber-300 mb-2">⭐ All-Pro: {allPro1}× 1º time{allPro2 > 0 ? ` · ${allPro2}× 2º time` : ""}</div>
+          )}
+          {historicRanks.map((r) => (
+            <div key={r.key} className="text-xs font-semibold text-amber-400 mb-1">
+              🏛️ #{r.rank} em {r.label} na História da Liga ({r.value.toLocaleString("pt-BR")} {r.key.endsWith("TD") ? "TDs" : r.key === "fgMade" ? "FGs" : r.key === "interceptions" ? "INTs" : r.key === "sacks" ? "sacks" : r.key === "tackles" ? "tackles" : r.key === "receptions" ? "recepções" : "jds"})
+            </div>
+          ))}
           {player.accolades?.length > 0 && (
             <div className="flex flex-wrap gap-1.5 mt-1">
-              {player.accolades.map((a, i) => (
+              {player.accolades.filter((a) => !a.startsWith("All-Pro")).map((a, i) => (
                 <span key={i} className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-400/10 text-amber-300 border border-amber-400/30">🏆 {a}</span>
               ))}
             </div>

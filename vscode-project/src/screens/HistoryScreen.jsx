@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Card, TeamLogo } from "../components/ui.jsx";
 import { STAT_CATEGORIES, formatStatValue } from "../season/stats.js";
 import { ResultsScreen, PlayoffPicture } from "./SeasonScreens.jsx";
+import { AllProTeams } from "../components/AllPro.jsx";
 
 // Histórico de temporadas passadas. Reaproveita ResultsScreen (jogos + box scores
 // + playoffs) montando um "career de visualização" com o schedule/playoffs
@@ -73,7 +74,8 @@ function Awards({ a, onOpenPlayer }) {
     ["🌟 Novato Ofensivo", aw.oroy], ["🌟 Novato Defensivo", aw.droy],
   ];
   return (
-    <Card>
+    <>
+    <Card className="mb-3">
       {rows.map(([label, p], i) => p && (
         <button key={label} onClick={() => onOpenPlayer?.(p.playerId, p.teamAbbr)}
           className={`w-full flex items-center justify-between text-sm py-1.5 text-left ${i > 0 ? "border-t border-white/5" : ""}`}>
@@ -88,6 +90,8 @@ function Awards({ a, onOpenPlayer }) {
         </div>
       )}
     </Card>
+    <AllProTeams awards={{ ...aw, year: a.year }} onOpenPlayer={onOpenPlayer} />
+    </>
   );
 }
 

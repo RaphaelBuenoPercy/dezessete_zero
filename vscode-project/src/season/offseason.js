@@ -10,13 +10,19 @@ import { markLeadersRetired } from "./allTime.js";
 // career: multiple major awards, or a long, productive run. Kept simple
 // and generous on purpose — this is a celebration screen, not a strict
 // statistical model.
+// Peso de cada honra: prêmios principais valem 1; All-Pro de 1º time 0,5 e de 2º time 0,2 (agora são
+// 22 jogadores por time, então contar tudo igual encheria o Hall da Fama).
+function accoladeScore(accolades) {
+  return accolades.reduce((s, a) => s + (a.startsWith("All-Pro 2") ? 0.2 : a.startsWith("All-Pro") ? 0.5 : 1), 0);
+}
 function isLegendary(p) {
   const accolades = p.accolades || [];
   const seasons = p.seasonsPlayed || 0;
   const wasMVP = accolades.some((a) => a.startsWith("MVP"));
+  const score = accoladeScore(accolades);
   if (wasMVP && seasons >= 3) return true;
-  if (accolades.length >= 3) return true;
-  if (accolades.length >= 1 && seasons >= 6) return true;
+  if (score >= 3) return true;
+  if (score >= 1 && seasons >= 6) return true;
   if (seasons >= 9 && p.ovr >= 82) return true;
   return false;
 }

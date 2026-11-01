@@ -13,6 +13,9 @@ import { updateLeadersFromTeams } from "./allTime.js";
 const OFFENSE_POS = ["QB", "RB", "WR", "TE"];
 const DEFENSE_POS = ["DL", "LB", "CB", "S"];
 
+// All-Pro: quantos jogadores por posição em cada time (1º e 2º time têm a mesma formação).
+const ALL_PRO_SLOTS = { QB: 1, RB: 1, WR: 2, TE: 1, OL: 5, DL: 4, LB: 3, CB: 2, S: 2, K: 1, P: 1 };
+
 // A rough, position-aware "how good was this season" score. Not meant to
 // be a perfect advanced stat — just something that reliably rewards a
 // clearly outstanding year over a merely decent one, weighted a little by
@@ -47,10 +50,21 @@ function computeSeasonAwards(leagueTeams, year) {
   const rookiesOff = rookies.filter((e) => OFFENSE_POS.includes(e.p.pos));
   const rookiesDef = rookies.filter((e) => DEFENSE_POS.includes(e.p.pos));
 
-  const allPro = {};
-  ["QB", "RB", "WR", "TE", "OL", "DL", "LB", "CB", "S", "K", "P"].forEach((pos) => {
-    const pool = entries.filter((e) => e.p.pos === pos);
-    if (pool.length) allPro[pos] = pool[0];
+  // 1º e 2º time All-Pro: os melhores de cada posição pela nota da temporada, sem repetir jogador.
+  // Na OL, quem jogou pouco fica de fora (a nota da linha só pune erros, então reservas pareceriam ótimos).
+  const allProTeams = { first: {}, second: {} };
+  const allPro = {};   // compat.: o melhor de cada posição (= 1º time)
+  Object.entries(ALL_PRO_SLOTS).forEach(([pos, n]) => {
+    let pool = entries.filter((e) => e.p.pos === pos);
+    if (pos === "OL" && pool.length) {
+      const maxSnaps = Math.max(...pool.map((e) => e.p.seasonStats?.runBlockSnaps || 0));
+      pool = pool.filter((e) => (e.p.seasonStats?.runBlockSnaps || 0) >= maxSnaps * 0.6);
+    }
+    if (pool.length) {
+      allProTeams.first[pos] = pool.slice(0, n);
+      allProTeams.second[pos] = pool.slice(n, n * 2);
+      allPro[pos] = pool[0];
+    }
   });
 
   const coachRanking = Object.values(leagueTeams)
@@ -64,6 +78,7 @@ function computeSeasonAwards(leagueTeams, year) {
     oroy: rookiesOff[0] || null,
     droy: rookiesDef[0] || null,
     allPro,
+    allProTeams,
     coachOfYear: coachRanking[0] || null,
   };
 }
@@ -72,6 +87,7 @@ function accoladeLabel(key, year) {
   const labels = {
     mvp: `MVP ${year}`, opoy: `Melhor Atacante ${year}`, dpoy: `Melhor Defensor ${year}`,
     oroy: `Novato Ofensivo do Ano ${year}`, droy: `Novato Defensivo do Ano ${year}`, allPro: `All-Pro ${year}`,
+    allPro1: `All-Pro 1º Time ${year}`, allPro2: `All-Pro 2º Time ${year}`,
   };
   return labels[key] || `Prêmio ${year}`;
 }
@@ -93,7 +109,10 @@ function applyCareerRollover(leagueTeams, awards, allTimeLeaders) {
   grant(awards.dpoy, "dpoy");
   grant(awards.oroy, "oroy");
   grant(awards.droy, "droy");
-  Object.values(awards.allPro).forEach((entry) => grant(entry, "allPro"));
+  if (awards.allProTeams) {
+    Object.values(awards.allProTeams.first).flat().forEach((entry) => grant(entry, "allPro1"));
+    Object.values(awards.allProTeams.second).flat().forEach((entry) => grant(entry, "allPro2"));
+  } else Object.values(awards.allPro).forEach((entry) => grant(entry, "allPro"));
 
   if (awards.mvp) news.push(`🏆 MVP da temporada: ${awards.mvp.p.name} (${awards.mvp.t.abbr}).`);
   if (awards.opoy) news.push(`⭐ Melhor jogador ofensivo: ${awards.opoy.p.name} (${awards.opoy.t.abbr}).`);
@@ -118,4 +137,4 @@ function applyCareerRollover(leagueTeams, awards, allTimeLeaders) {
   return news;
 }
 
-export { computeSeasonAwards, applyCareerRollover, accoladeLabel, seasonValueScore };
+export { ALL_PRO_SLOTS, computeSeasonAwards, applyCareerRollover, accoladeLabel, seasonValueScore };

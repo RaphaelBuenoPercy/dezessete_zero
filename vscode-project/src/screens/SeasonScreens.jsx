@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { AllProTeams } from "../components/AllPro.jsx";
 import { clamp } from "../lib/rng.js";
 import { TEAM_META } from "../data/teams.js";
 import { rivalryTier } from "../season/rivalries.js";
@@ -596,7 +597,6 @@ function HonorsScreen({ career, onBack, onOpenPlayer }) {
     ["🌟 Novato Ofensivo", awards.oroy, "#4ade80"],
     ["🌟 Novato Defensivo", awards.droy, "#a78bfa"],
   ];
-  const allProEntries = Object.entries(awards.allPro || {}).filter(([, a]) => a);
 
   return (
     <div className="pb-24">
@@ -643,19 +643,7 @@ function HonorsScreen({ career, onBack, onOpenPlayer }) {
         </Card>
       )}
 
-      {allProEntries.length > 0 && (
-        <Card>
-          <div className="text-xs text-slate-400 font-bold mb-2">All-Pro Team {awards.year}</div>
-          <div className="space-y-1">
-            {allProEntries.map(([pos, a]) => (
-              <button key={pos} onClick={() => onOpenPlayer(a.playerId, a.teamAbbr)} className="w-full flex items-center justify-between text-sm py-1 border-b border-white/5 last:border-0 hover:text-sky-300 text-left">
-                <span className="flex items-center gap-2"><PosPill pos={pos} />{a.name}</span>
-                <span className="flex items-center gap-1.5 text-xs text-slate-500"><TeamLogo abbr={a.teamAbbr} size={16} />{a.ovr} OVR</span>
-              </button>
-            ))}
-          </div>
-        </Card>
-      )}
+      <AllProTeams awards={awards} onOpenPlayer={onOpenPlayer} />
     </div>
   );
 }
@@ -697,6 +685,7 @@ const EVENT_CAT = {
   crisis: { icon: "⚠️", label: "Crise", color: "#f87171" }, positive: { icon: "🌟", label: "Momento positivo", color: "#4ade80" },
   strategy: { icon: "📋", label: "Reunião tática", color: "#38bdf8" }, rivalry: { icon: "🔥", label: "Rivalidade", color: "#fb923c" },
   media: { icon: "📰", label: "Mídia", color: "#a78bfa" }, relations: { icon: "🤝", label: "Relações e promessas", color: "#fbbf24" },
+  draft: { icon: "🎓", label: "Draft ao vivo", color: "#22d3ee" },
 };
 function EventModal({ event, onChoose }) {
   if (!event) return null;
@@ -704,7 +693,7 @@ function EventModal({ event, onChoose }) {
   return (
     <div className="fixed inset-0 bg-black/75 flex items-end sm:items-center justify-center z-30 p-4 overflow-y-auto">
       <div className="bg-[#131B2E] border border-white/10 rounded-lg p-5 w-full max-w-md my-4">
-        <div className="text-xs font-semibold mb-2" style={{ color: cat.color }}>{cat.icon} {cat.label} · Semana {event.week}</div>
+        <div className="text-xs font-semibold mb-2" style={{ color: cat.color }}>{cat.icon} {cat.label}{event.week ? ` · Semana ${event.week}` : event.tag ? ` · ${event.tag}` : ""}</div>
         <h3 className="text-lg font-black leading-tight mb-2">{event.title}</h3>
         <p className="mb-4 text-sm text-slate-200 leading-relaxed">{event.body}</p>
         <div className="space-y-2">

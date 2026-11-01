@@ -349,6 +349,14 @@ function generateDraftClass(year) {
     p.slot = null;
     p.draftRound = round;
     p.rookieYear = year;
+    // Fog of war: ruído do "consenso da mídia" e perfil pessoal oculto (revelados só pelo scouting)
+    p.scoutNoise = randInt(rng, -6, 6);
+    const tr = rng();
+    p.trait = tr < 0.6 ? "normal" : tr < 0.72 ? "trabalhador" : tr < 0.8 ? "lider" : tr < 0.9 ? "problematico" : "fragil";
+    if (p.trait === "trabalhador") p.dev = "rising";
+    else if (p.trait === "lider") p.morale = 78;
+    else if (p.trait === "problematico") p.morale = 48;
+    else if (p.trait === "fragil") p.injuryHistory = Array.from({ length: 4 }, () => ({ weeks: 2, type: "histórico universitário" }));
     prospects.push(p);
   }
   // sort roughly by quality with noise so draft order isn't perfectly ovr-sorted

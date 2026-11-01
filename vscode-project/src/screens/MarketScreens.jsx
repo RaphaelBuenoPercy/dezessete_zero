@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { clamp } from "../lib/rng.js";
 import { CAP, TEAM_META } from "../data/teams.js";
 import { SUB_ATTRS } from "../data/rosterSlots.js";
@@ -13,6 +13,10 @@ import { buildTierList } from "../season/powerRankings.js";
 import { GAME_RECORD_CATS, SEASON_RECORD_CATS } from "../season/records.js";
 import { Bar, Card, Btn, shadeColor, TeamLogo, PosPill, OvrBadge, AttrBars, DevTag, devLabel } from "../components/ui.jsx";
 import { CoachCard } from "../components/CoachCard.jsx";
+import { AllTimePanel } from "./AllTimePanel.jsx";
+import { EventModal } from "./SeasonScreens.jsx";
+import { FogOvr, FogAttrBars, ScoutPanel, TraitLine } from "../components/Fog.jsx";
+import { fogRead, fogReport, consensusScore } from "../season/fog.js";
 import { FRONT_BY_SCHEME, levelIdx } from "../engine/coachesGen.js";
 import { staffImpact } from "../engine/staffEffects.js";
 
@@ -426,6 +430,7 @@ function GradeBadge({ grade }) {
 }
 
 function ScoutingBlurb({ report, className = "" }) {
+  if (report?.empty) return <div className={`text-[11px] text-slate-600 mt-0.5 ${className}`}>🔍 Sem informação: use o scouting para descobrir atributos.</div>;
   if (!report?.strength) return null;
   return (
     <div className={`text-[11px] text-slate-500 mt-0.5 ${className}`}>
@@ -482,6 +487,11 @@ function PickAnnouncement({ player, round, myTeam, onClose }) {
         <div className="text-[11px] text-slate-400 mb-3 uppercase tracking-wide">Rodada {round} · O {myTeam.abbr} escolhe</div>
         <div className="flex justify-center"><OvrBadge ovr={player.ovr} size={72} /></div>
         <div className="text-2xl font-black mt-3">{player.name}</div>
+        {player.expected && !player.wasExact && (
+          <div className="text-xs mt-1 text-slate-400">Scouting esperava <span className="text-slate-200 font-semibold">{player.expected}</span> · real <span className="font-bold text-white">{player.ovr}</span>{" "}
+            {player.ovr >= player.expectedMid + 4 ? <span className="text-emerald-400 font-semibold">Surpresa positiva!</span> : player.ovr <= player.expectedMid - 4 ? <span className="text-red-400 font-semibold">Decepção...</span> : <span className="text-slate-500">dentro do esperado</span>}
+          </div>
+        )}
         <div className="flex items-center justify-center gap-2 mt-1.5 flex-wrap">
           <PosPill pos={player.pos} />
           <GradeBadge grade={grade} />
@@ -495,7 +505,7 @@ function PickAnnouncement({ player, round, myTeam, onClose }) {
   );
 }
 
-function ProspectDetailScreen({ playerId, career, myTeam, onBack, onDraftPick }) {
+function ProspectDetailScreen({ playerId, career, myTeam, onBack, onDraftPick, onScout }) {
   const player = career.draftClass?.find((p) => p.id === playerId);
   if (!player) {
     return (
@@ -510,18 +520,19 @@ function ProspectDetailScreen({ playerId, career, myTeam, onBack, onDraftPick })
   const round = Math.floor(career.draftPickIndex / order.length) + 1;
   const onClock = resolvePickOwner(career.futurePicks, order, career.year + 1, round, career.draftPickIndex);
   const isMe = onClock === myTeam.abbr;
-  const grade = ovrGrade(player.ovr);
+  const fog = fogRead(career, player);
+  const grade = fog.grade;
   const fit = fitForTeam(player, myTeam);
-  const report = scoutingReport(player);
+  const report = fogReport(career, player);
   const value = pickValueRead(player.draftRound, round);
   const targetSlot = myTeam.roster.filter((r) => r.pos === player.pos).sort((a, b) => a.ovr - b.ovr)[0];
-  const upgrade = targetSlot ? player.ovr - targetSlot.ovr : null;
+  const upgrade = targetSlot ? fog.mid - targetSlot.ovr : null;
 
   return (
     <div className="pb-24">
       <button onClick={onBack} className="text-sm text-slate-400 mb-3">← Voltar</button>
       <div className="flex items-center gap-3 mb-2">
-        <OvrBadge ovr={player.ovr} size={56} />
+        <FogOvr career={career} p={player} size={56} />
         <div>
           <div className="text-2xl font-black leading-tight">{player.name}</div>
           <div className="text-xs text-slate-500 flex items-center gap-2 mt-1 flex-wrap">
@@ -534,7 +545,7 @@ function ProspectDetailScreen({ playerId, career, myTeam, onBack, onDraftPick })
       <div className="mb-2" />
       <Card className="mb-3">
         <div className="grid grid-cols-3 gap-2 text-center">
-          <div><div className="text-slate-500 text-[11px]">Projeção OVR</div><div className="font-bold text-lg">{player.ovr}</div></div>
+          <div><div className="text-slate-500 text-[11px]">Projeção OVR</div><div className="font-bold text-lg">{fog.text}</div></div>
           <div><div className="text-slate-500 text-[11px]">Idade</div><div className="font-bold text-lg">{player.age}</div></div>
           <div><div className="text-slate-500 text-[11px]">Rodada</div><div className="font-bold text-lg">{player.draftRound}</div></div>
         </div>
@@ -542,9 +553,10 @@ function ProspectDetailScreen({ playerId, career, myTeam, onBack, onDraftPick })
       {subAttrs.length > 0 && (
         <Card className="mb-3">
           <div className="text-sm font-semibold mb-2">Atributos</div>
-          <AttrBars pos={player.pos} attrs={player.attrs} />
+          <FogAttrBars career={career} p={player} />
         </Card>
       )}
+      {onScout && <ScoutPanel career={career} p={player} onScout={onScout} />}
       <Card className="mb-3">
         <div className="text-sm font-semibold mb-2">Curiosidades</div>
         <ul className="text-xs text-slate-400 space-y-1.5 list-disc list-inside">
@@ -568,14 +580,15 @@ function ProspectDetailScreen({ playerId, career, myTeam, onBack, onDraftPick })
   );
 }
 
-function ProspectCard({ p, myTeam, isMe, onDraftPick, onOpenPlayer }) {
-  const grade = ovrGrade(p.ovr);
+function ProspectCard({ career, p, myTeam, isMe, onDraftPick, onOpenPlayer, onScout }) {
+  const fog = fogRead(career, p);
+  const grade = fog.grade;
   const fit = fitForTeam(p, myTeam);
-  const report = scoutingReport(p);
+  const report = fogReport(career, p);
   return (
     <Card className="mb-3">
       <div className="flex items-start gap-3">
-        <OvrBadge ovr={p.ovr} />
+        <FogOvr career={career} p={p} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <PosPill pos={p.pos} />
@@ -587,10 +600,15 @@ function ProspectCard({ p, myTeam, isMe, onDraftPick, onOpenPlayer }) {
             <GradeBadge grade={grade} />
             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-white/10 text-slate-400">Rodada {p.draftRound}</span>
           </div>
-          <div className="text-[11px] text-slate-500 mt-0.5">idade {p.age} · projeção OVR {p.ovr}</div>
+          <div className="text-[11px] text-slate-500 mt-0.5">idade {p.age} · projeção OVR {fog.text}</div>
           <div className="text-[11px] font-medium mt-1" style={{ color: fit.color }}>{fit.label}</div>
           <ScoutingBlurb report={report} />
-          <AttrBars pos={p.pos} attrs={p.attrs} top={6} />
+          <FogAttrBars career={career} p={p} top={6} />
+          {fog.known > 0 && <TraitLine career={career} p={p} />}
+          <div className="flex gap-3 mt-2">
+            {onScout && <button onClick={() => onScout(p.id, "campus")} disabled={(career.scouting?.points ?? 0) < 1} className="text-[11px] text-sky-300 hover:underline disabled:opacity-40">🔍 Olheiro (1 pt)</button>}
+            {onOpenPlayer && <button onClick={() => onOpenPlayer(p.id)} className="text-[11px] text-slate-400 hover:underline">Investigar →</button>}
+          </div>
         </div>
       </div>
       {isMe && <Btn className="w-full mt-3" onClick={() => onDraftPick(p)}>Draftar {p.name.split(" ").slice(-1)[0]}</Btn>}
@@ -626,10 +644,12 @@ function DraftRecap({ career, myTeam }) {
   );
 }
 
-function DraftScreen({ career, myTeam, onDraftPick, onSimToMyPick, onOpenPlayer }) {
+function DraftScreen({ career, myTeam, onDraftPick, onSimToMyPick, onOpenPlayer, onScout, onLiveTick, onChooseDraftEvent }) {
   const [posFilter, setPosFilter] = useState("Todos");
   const [sortBy, setSortBy] = useState("rank");
   const [justPicked, setJustPicked] = useState(null);
+  const [live, setLive] = useState(false);
+  const [speed, setSpeed] = useState(1);
   const order = career.draftOrder;
   const draftYear = career.year + 1;
   const idx = career.draftPickIndex;
@@ -641,9 +661,18 @@ function DraftScreen({ career, myTeam, onDraftPick, onSimToMyPick, onOpenPlayer 
   const clockTeam = TEAM_META.find((t) => t.abbr === onClock);
   const untilMine = picksUntilMine(order, career.futurePicks, draftYear, idx, myTeam.abbr, totalPicks);
 
+  // Modo ao vivo: uma escolha da IA por tick, parando na sua vez ou quando surge um evento.
+  const liveStopped = isMe || !!career.pendingDraftEvent || idx >= totalPicks;
+  useEffect(() => {
+    if (!live || liveStopped) return undefined;
+    const t = setTimeout(() => onLiveTick(), 950 / speed);
+    return () => clearTimeout(t);
+  }, [live, liveStopped, idx, speed]);
+
   function handleDraft(p) {
+    const f = fogRead(career, p);               // o que o scouting esperava, antes da revelação
     onDraftPick(p);
-    setJustPicked({ ...p, atRound: round });
+    setJustPicked({ ...p, atRound: round, expected: f.text, expectedMid: f.mid, wasExact: f.exact });
   }
 
   if (idx >= totalPicks) {
@@ -672,7 +701,8 @@ function DraftScreen({ career, myTeam, onDraftPick, onSimToMyPick, onOpenPlayer 
       const fa = fitForTeam(a, myTeam).rank ?? 99, fb = fitForTeam(b, myTeam).rank ?? 99;
       if (fa !== fb) return fa - fb;
     }
-    return b.ovr - a.ovr;
+    if (sortBy === "scout") return fogRead(career, b).mid - fogRead(career, a).mid;
+    return consensusScore(b) - consensusScore(a);   // consenso da mídia (mock draft), não o OVR real
   });
   const top = filtered.slice(0, 12);
   const recent = [...(career.draftHistory || [])].slice(-6).reverse();
@@ -680,6 +710,7 @@ function DraftScreen({ career, myTeam, onDraftPick, onSimToMyPick, onOpenPlayer 
   return (
     <div className="pb-24">
       <PickAnnouncement player={justPicked} round={justPicked?.atRound} myTeam={myTeam} onClose={() => setJustPicked(null)} />
+      {career.pendingDraftEvent && <EventModal event={career.pendingDraftEvent} onChoose={onChooseDraftEvent} />}
       <h2 className="text-xl font-black mb-1">Draft {career.year}</h2>
       <p className="text-xs text-slate-500 mb-3">Pick {idx + 1} de {totalPicks} · Rodada {round}, escolha {pickInRound}</p>
       <div className="mb-4">
@@ -700,8 +731,36 @@ function DraftScreen({ career, myTeam, onDraftPick, onSimToMyPick, onOpenPlayer 
           </div>
         </div>
         <TeamNeedsStrip team={career.leagueTeams[onClock]} />
-        {!isMe && <Btn className="w-full mt-3" onClick={onSimToMyPick}>Simular até minha próxima escolha</Btn>}
+        {!isMe && (
+          <>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <Btn onClick={() => setLive((v) => !v)}>{live ? "⏸ Pausar" : "▶ Assistir ao vivo"}</Btn>
+              <Btn variant="ghost" onClick={() => { setLive(false); onSimToMyPick(); }}>Pular até minha vez</Btn>
+            </div>
+            {live && <button onClick={() => setSpeed((v) => (v >= 4 ? 1 : v * 2))} className="text-[11px] text-white/60 underline mt-2">Velocidade {speed}x (tocar para mudar)</button>}
+          </>
+        )}
       </div>
+
+      <Card className="mb-4">
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-sm font-semibold">🔍 Scouting</div>
+          <div className="text-xs text-slate-400 tabular-nums">{career.scouting?.points ?? 0}/{career.scouting?.total ?? 0} pontos</div>
+        </div>
+        <div className="text-[11px] text-slate-500">Os prospects só mostram o que foi revelado. Abra um prospect para gastar pontos (atributos, vídeo, entrevista).</div>
+        {(career.scouting?.log || []).slice(0, 2).map((l, i) => <div key={i} className="text-[11px] text-amber-300 mt-1">• {l}</div>)}
+      </Card>
+
+      {(career.draftFeed || []).length > 0 && (
+        <Card className="mb-4 border-cyan-400/30">
+          <div className="text-xs text-cyan-300 font-semibold mb-2">📡 Ao vivo do draft</div>
+          <div className="space-y-1.5">
+            {career.draftFeed.slice(0, 7).map((f) => (
+              <div key={f.key} className={`text-xs leading-snug ${f.tone === "good" ? "text-emerald-300" : f.tone === "bad" ? "text-red-300" : f.tone === "user" ? "text-amber-300" : "text-slate-300"}`}>{f.text}</div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {steals.length > 0 && (
         <Card className="mb-4 border-emerald-400/30">
@@ -730,7 +789,7 @@ function DraftScreen({ career, myTeam, onDraftPick, onSimToMyPick, onOpenPlayer 
                   <TeamLogo abbr={h.teamAbbr} size={18} />
                   <PosPill pos={h.pos} />
                   <span className="truncate flex-1">{h.name}</span>
-                  <span className="text-slate-500 tabular-nums text-xs shrink-0">{h.ovr}</span>
+                  <span className="text-slate-500 tabular-nums text-xs shrink-0">{h.teamAbbr === myTeam.abbr ? h.ovr : "?"}</span>
                   {val && <span className="text-[10px] font-semibold shrink-0" style={{ color: val.color }}>{val.label}</span>}
                 </div>
               );
@@ -749,7 +808,7 @@ function DraftScreen({ career, myTeam, onDraftPick, onSimToMyPick, onOpenPlayer 
       </div>
       <div className="flex items-center gap-3 mb-3">
         <span className="text-[11px] text-slate-500">Ordenar:</span>
-        {[["rank", "Melhor disponível"], ["fit", "Meu encaixe"]].map(([k, label]) => (
+        {[["rank", "Consenso da mídia"], ["scout", "Meu scouting"], ["fit", "Meu encaixe"]].map(([k, label]) => (
           <button key={k} onClick={() => setSortBy(k)}
             className={`text-[11px] ${sortBy === k ? "text-sky-300 font-semibold underline" : "text-slate-500"}`}>
             {label}
@@ -758,7 +817,7 @@ function DraftScreen({ career, myTeam, onDraftPick, onSimToMyPick, onOpenPlayer 
       </div>
 
       <div className="text-xs text-slate-400 mb-2">Melhores disponíveis</div>
-      {top.map((p) => <ProspectCard key={p.id} p={p} myTeam={myTeam} isMe={isMe} onDraftPick={handleDraft} onOpenPlayer={onOpenPlayer} />)}
+      {top.map((p) => <ProspectCard key={p.id} career={career} p={p} myTeam={myTeam} isMe={isMe} onDraftPick={handleDraft} onOpenPlayer={onOpenPlayer} onScout={onScout} />)}
     </div>
   );
 }
@@ -904,10 +963,10 @@ function StatsScreen({ career, myTeam, onOpenPlayer, onOpenTeam }) {
       <h2 className="text-xl font-black mb-1">Estatísticas</h2>
       <p className="text-xs text-slate-500 mb-4">Acumulado da temporada {career.year}.</p>
 
-      <div className="flex gap-1.5 mb-4">
-        {[["leaders", "Líderes"], ["power", "Power Rankings"], ["tiers", "Tier Lists"], ["records", "Recordes"]].map(([k, l]) => (
+      <div className="flex gap-1.5 mb-4 overflow-x-auto">
+        {[["leaders", "Líderes"], ["power", "Power Rankings"], ["tiers", "Tier Lists"], ["records", "Recordes"], ["alltime", "Histórico"]].map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
-            className={`flex-1 text-xs font-semibold py-1.5 rounded-md border ${tab === k ? "bg-white text-black border-white" : "border-white/15 text-slate-400"}`}>
+            className={`flex-1 whitespace-nowrap px-2.5 text-xs font-semibold py-1.5 rounded-md border ${tab === k ? "bg-white text-black border-white" : "border-white/15 text-slate-400"}`}>
             {l}
           </button>
         ))}
@@ -916,6 +975,7 @@ function StatsScreen({ career, myTeam, onOpenPlayer, onOpenTeam }) {
       {tab === "power" && <PowerRankingsPanel career={career} myTeam={myTeam} onOpenTeam={onOpenTeam} />}
       {tab === "tiers" && <TierListPanel career={career} myTeam={myTeam} onOpenPlayer={onOpenPlayer} />}
       {tab === "records" && <RecordsPanel career={career} onOpenPlayer={onOpenPlayer} />}
+      {tab === "alltime" && <AllTimePanel career={career} onOpenPlayer={onOpenPlayer} />}
 
       {tab === "leaders" && <>
       {awards && (
