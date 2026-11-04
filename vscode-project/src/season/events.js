@@ -467,6 +467,27 @@ const EVENTS = [
         ...(vet ? [opt(`Chamar ${vet.name}, o mais respeitado`, [{ t: "teamMorale", v: 4 }, { t: "morale", pid: vet.id, v: 4 }])] : []),
       ],
     }) },
+  // ===== LEI DO EX (revenge game) =====
+  { id: "revenge_game", category: "media", weight: 2.2, cd: 3,
+    when: (ctx) => {
+      const p = first(ctx.my.roster.filter((x) => x.ovr >= 75 && x.formerTeam && x.formerTeam === ctx.oppAbbr).sort((a, b) => b.ovr - a.ovr));
+      return p ? { p } : null;
+    },
+    build: (ctx, { p }) => {
+      const opp = abbrName(ctx.oppAbbr);
+      return {
+        title: `Lei do Ex: ${p.name} reencontra o ${opp}`,
+        body: `${p.name} (${p.pos}, OVR ${p.ovr}) enfrenta o ex-time, o ${opp}. A imprensa só fala disso e as câmeras já o seguem até o vestiário.`,
+        options: [
+          { ...opt("Alimentar a narrativa do reencontro", [{ t: "chance", p: 0.75, win: [{ t: "tmp", pid: p.id, all: 4, weeks: 1, label: "Lei do Ex" }, { t: "fan", v: 2 }], winText: `${p.name} entra no jogo com sangue nos olhos.`, lose: [{ t: "tmp", pid: p.id, all: -2, weeks: 1, label: "Pressão" }], loseText: `O holofote pesou em ${p.name}.` }]),
+            blurb: `"A vingança é um prato que se serve frio", diz o âncora do programa de esportes.` },
+          { ...opt("Tratar como mais um jogo", [{ t: "tmp", pid: p.id, all: 3, weeks: 1, label: "Lei do Ex" }, { t: "morale", pid: p.id, v: 3 }]),
+            blurb: `Os colunistas elogiam a frieza, mas desconfiam do discurso ensaiado.` },
+          { ...opt("Blindar o jogador da imprensa", [{ t: "tmp", pid: p.id, all: 3, weeks: 1, label: "Lei do Ex" }, { t: "fan", v: -1 }]),
+            blurb: `Sem entrevistas, a mídia inventa a própria versão do reencontro.` },
+        ],
+      };
+    } },
 ];
 
 // ---------- sorteio semanal ----------

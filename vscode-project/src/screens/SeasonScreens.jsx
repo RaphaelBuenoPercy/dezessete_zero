@@ -700,6 +700,7 @@ function EventModal({ event, onChoose }) {
           {event.options.map((o, i) => (
             <button key={i} onClick={() => onChoose(event.uid, i)} className="w-full text-left px-3 py-2.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10">
               <div className="text-sm font-semibold">{o.label}</div>
+              {o.blurb && <div className="text-[11px] text-slate-400 mt-0.5 leading-snug">{o.blurb}</div>}
               {o.chips?.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-1.5">
                   {o.chips.map((ch, k) => (

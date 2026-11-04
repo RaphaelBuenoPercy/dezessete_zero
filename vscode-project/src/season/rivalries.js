@@ -14,13 +14,14 @@
 
 function ensureRivalry(rivalries, abbr) {
   if (!rivalries[abbr]) {
-    rivalries[abbr] = { wins: 0, losses: 0, ties: 0, meetings: 0, playoffMeetings: 0, lastYear: null, lastResult: null, streak: 0, streakType: null };
+    rivalries[abbr] = { wins: 0, losses: 0, ties: 0, meetings: 0, playoffMeetings: 0, lastYear: null, lastResult: null, streak: 0, streakType: null, revenge: 0 };
   }
   return rivalries[abbr];
 }
 
 // Records one game's result into the ongoing series with `oppAbbr`.
-function recordMeeting(rivalries, oppAbbr, myScore, oppScore, year, isPlayoff) {
+// revengeDecisive: vitória decidida por um jogador contra o ex-time (ver isRevengeDecisive); dá um bump na rivalidade.
+function recordMeeting(rivalries, oppAbbr, myScore, oppScore, year, isPlayoff, revengeDecisive = false) {
   const r = ensureRivalry(rivalries, oppAbbr);
   r.meetings += 1;
   if (isPlayoff) r.playoffMeetings += 1;
@@ -30,7 +31,14 @@ function recordMeeting(rivalries, oppAbbr, myScore, oppScore, year, isPlayoff) {
   r.streakType = result;
   r.lastYear = year;
   r.lastResult = result;
+  if (revengeDecisive && result === "V") r.revenge = (r.revenge || 0) + 1;
   return r;
+}
+
+// Vitória apertada (até 8 pontos) com TD ou FG de um jogador contra o ex-time (formerById: { id: abbr }).
+function isRevengeDecisive(boxList, myScore, oppScore, oppAbbr, formerById) {
+  if (myScore <= oppScore || myScore - oppScore > 8) return false;
+  return (boxList || []).some((p) => formerById[p.id] === oppAbbr && ((p.stats?.rushTD || 0) + (p.stats?.receivingTD || 0) >= 1 || (p.stats?.fgMade || 0) >= 1));
 }
 
 // How this rivalry reads right now — used both for badges/cards and to
@@ -38,6 +46,7 @@ function recordMeeting(rivalries, oppAbbr, myScore, oppScore, year, isPlayoff) {
 function rivalryTier(r, isDivision) {
   if (!r) return isDivision ? { label: "Rival de divisão", color: "#38bdf8" } : null;
   if (r.playoffMeetings > 0) return { label: "Rivalidade de playoff", color: "#f87171" };
+  if (r.revenge > 0) return isDivision ? { label: "Clássico de divisão", color: "#fbbf24" } : { label: "Rivalidade pessoal", color: "#f97316" };
   if (isDivision && r.meetings >= 3 && Math.abs(r.wins - r.losses) <= 1) return { label: "Clássico de divisão", color: "#fbbf24" };
   if (isDivision) return { label: "Rival de divisão", color: "#38bdf8" };
   if (r.streak >= 3 && r.streakType === "V") return { label: "Domínio total", color: "#4ade80" };
@@ -82,4 +91,4 @@ function updateNemeses(nemeses, standouts, oppAbbr, year) {
   return list.sort((a, b) => b.games - a.games).slice(0, 8);
 }
 
-export { ensureRivalry, recordMeeting, rivalryTier, headToHeadLine, detectStandoutPerformances, updateNemeses };
+export { ensureRivalry, isRevengeDecisive, recordMeeting, rivalryTier, headToHeadLine, detectStandoutPerformances, updateNemeses };

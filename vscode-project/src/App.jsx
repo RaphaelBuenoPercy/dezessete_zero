@@ -4,7 +4,7 @@ import { CAP, TEAM_META } from "./data/teams.js";
 import { buildSchedule, generateFreeAgents, generateDraftClass, capUsed, upgradeCareerPlayers } from "./engine/playerGen.js";
 import { snapshotRosterStats, diffRosterStats, simGameDetailed, simGameQuick } from "./engine/simulation.js";
 import { buildPressEvent } from "./engine/press.js";
-import { recordMeeting, rivalryTier, headToHeadLine, detectStandoutPerformances, updateNemeses } from "./season/rivalries.js";
+import { recordMeeting, isRevengeDecisive, rivalryTier, headToHeadLine, detectStandoutPerformances, updateNemeses } from "./season/rivalries.js";
 import { conferenceSeeds, draftOrderFromStandings, applyResult } from "./season/standings.js";
 import { findSlotForRookie, insertPlayer } from "./season/roster.js";
 import { rollFuturePicks, resolvePickOwner, consumePick, pickLabel } from "./season/picks.js";
@@ -22,8 +22,10 @@ import { extensionAsk, processAIContracts, releaseToMarket } from "./season/cont
 import { computeSeasonAwards, applyCareerRollover } from "./season/legacy.js";
 import { snapshotLeaders, archiveSeason } from "./season/archive.js";
 import { ensureCoachingState } from "./engine/coachesGen.js";
-import { ensureScoutingState, resetScouting, doScout } from "./season/fog.js";
-import { pickCommentary, afterUserPick, rollMyTurnEvent, rollBetweenEvent, resolveDraftEvent, pushFeed } from "./season/draftEvents.js";
+import { ensureScoutingState, resetScouting } from "./season/fog.js";
+import { listSaves, loadCareer, deleteCareer, migrateLegacy, loadLegacyCareer, removeLegacy, saveCareer } from "./lib/storage.js";
+import { useAutoSave } from "./hooks/useAutoSave.js";
+import { useDraftSession } from "./hooks/useDraftSession.js";
 import { ensureAllTimeLeaders, markRetiredLeaders } from "./season/allTime.js";
 import { ensureEventsState, rollWeeklyEvents, resolveEvent, checkPromises, tickTempMods, withWeekMods } from "./season/events.js";
 import { runCoachingCarousel, applyCoachDevelopment, hireCoach, fireCoach, renewCoach } from "./season/coachingCarousel.js";
@@ -109,32 +111,27 @@ export default function App() {
   const [swapFrom, setSwapFrom] = useState(null);
   const [simProgress, setSimProgress] = useState(null);
 
-  const refreshSaves = useCallback(() => {
+  // Lista os saves a partir do IndexedDB (resumos leves). Saves antigos do localStorage são migrados aqui.
+  const refreshSaves = useCallback(async () => {
     try {
-      const list = [], specList = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (!k || !k.startsWith("nflcareer:")) continue;
-        try {
-          const raw = localStorage.getItem(k);
-          if (raw) {
-            const c = JSON.parse(raw);
-            if (c.spectator) specList.push({ id: c.id, label: c.forkOf ? "Espectador (realidade alternativa)" : "Espectador", year: c.year, titles: Object.keys(c.seasonArchive || {}).length });
-            else list.push({ id: c.id, coachName: c.coachName, teamAbbr: c.teamAbbr, year: c.year, week: c.week });
-          }
-        } catch (e) {}
-      }
-      setSaves(list); setSpectatorSaves(specList);
+      await migrateLegacy();
+      const metas = await listSaves();
+      setSaves(metas.filter((m) => !m.spectator).map((m) => ({ id: m.id, coachName: m.coachName, teamAbbr: m.teamAbbr, year: m.year, week: m.week })));
+      setSpectatorSaves(metas.filter((m) => m.spectator).map((m) => ({ id: m.id, label: m.forkOf ? "Espectador (realidade alternativa)" : "Espectador", year: m.year, titles: m.titles })));
     } catch (e) { setSaves([]); setSpectatorSaves([]); }
   }, []);
 
   useEffect(() => { refreshSaves(); }, [refreshSaves]);
 
-  const persist = useCallback((c) => {
-    try { localStorage.setItem("nflcareer:" + c.id, JSON.stringify(c)); } catch (e) {}
-  }, []);
+  // Autosave com debounce no IndexedDB (pausado durante simulações em lote).
+  const { status: saveStatus, flush: flushSave } = useAutoSave(career, { paused: !!simProgress });
 
-  useEffect(() => { if (career) persist(career); }, [career, persist]);
+  // Draft ao vivo: o estado volátil (feed, scouting, eventos, escolhas) fica fora do career e é mesclado em blocos.
+  const draft = useDraftSession({
+    career, setCareer,
+    active: screen === "draft" || (screen === "playerDetail" && detail?.type === "draft"),
+    onFinalize: maybeFireDraftGrade,
+  });
 
   function go(s) { setScreen(s); }
 
@@ -193,11 +190,14 @@ export default function App() {
     setCareer(c);
     setScreen("hub");
   }
-  function onLoadCareer(id) {
+  async function onLoadCareer(id) {
     try {
-      const raw = localStorage.getItem("nflcareer:" + id);
-      if (raw) {
-        const loaded = JSON.parse(raw);
+      let loaded = await loadCareer(id);
+      if (!loaded) {                                  // save antigo ainda no localStorage: lê, regrava no IndexedDB e remove o antigo
+        loaded = loadLegacyCareer(id);
+        if (loaded) { await saveCareer(loaded); removeLegacy(id); }
+      }
+      if (loaded) {
         upgradeCareerPlayers(loaded); // saves antigos (2 atributos) -> novos atributos, mantendo o OVR
         ensureCoachingState(loaded, mulberry32(seedFromString(loaded.id + "-staff"))); // comissão técnica em saves antigos
         ensureEventsState(loaded); // eventos/promessas em saves antigos
@@ -207,10 +207,14 @@ export default function App() {
       }
     } catch (e) {}
   }
-  function onDeleteCareer(id) {
-    try { localStorage.removeItem("nflcareer:" + id); refreshSaves(); } catch (e) {}
+  async function onDeleteCareer(id) {
+    try { await deleteCareer(id); } catch (e) {}
+    refreshSaves();
   }
-  function onRestart() { setCareer(null); setScreen("menu"); refreshSaves(); }
+  async function onRestart() {
+    await flushSave();                                // garante o último estado gravado antes de sair
+    setCareer(null); setScreen("menu"); refreshSaves();
+  }
 
   const myTeam = career && !career.spectator ? career.leagueTeams[career.teamAbbr] : null;
 
@@ -292,7 +296,9 @@ export default function App() {
         const myTeamMeta = c.leagueTeams[c.teamAbbr], oppTeamMeta = c.leagueTeams[oppAbbr];
         const isDivision = myTeamMeta.conf === oppTeamMeta.conf && myTeamMeta.div === oppTeamMeta.div;
         if (!c.rivalries) c.rivalries = {};
-        const rival = recordMeeting(c.rivalries, oppAbbr, score[c.teamAbbr], score[oppAbbr], c.year, false);
+        const formerById = Object.fromEntries(myTeamMeta.roster.filter((p) => p.formerTeam).map((p) => [p.id, p.formerTeam]));
+        const myBox = oppAbbr === myGame.home ? myGame.boxScore.away : myGame.boxScore.home;
+        const rival = recordMeeting(c.rivalries, oppAbbr, score[c.teamAbbr], score[oppAbbr], c.year, false, isRevengeDecisive(myBox, score[c.teamAbbr], score[oppAbbr], oppAbbr, formerById));
         const tier = rivalryTier(rival, isDivision);
         const h2h = headToHeadLine(rival, c.teamAbbr);
         const oppBoxScore = oppAbbr === myGame.home ? myGame.boxScore.home : myGame.boxScore.away;
@@ -819,30 +825,6 @@ export default function App() {
     });
   }
 
-  function draftPick(prospect) {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      const order = c.draftOrder;
-      const draftYear = c.year + 1;
-      const round = Math.floor(c.draftPickIndex / order.length) + 1;
-      const pickInRound = (c.draftPickIndex % order.length) + 1;
-      const teamAbbr = resolvePickOwner(c.futurePicks, order, draftYear, round, c.draftPickIndex);
-      const t = c.leagueTeams[teamAbbr];
-      const slot = findSlotForRookie(t.roster, prospect.pos);
-      insertPlayer(t.roster, slot, { ...prospect, slot });
-      c.draftClass = c.draftClass.filter((p) => p.id !== prospect.id);
-      consumePick(c.futurePicks, order, draftYear, round, c.draftPickIndex);
-      if (teamAbbr === c.teamAbbr) c.news.push(`Draft: ${teamAbbr} seleciona ${prospect.name} (${prospect.pos}).`);
-      if (!c.draftHistory) c.draftHistory = [];
-      c.draftHistory.push({ round, pick: pickInRound, teamAbbr, name: prospect.name, pos: prospect.pos, ovr: prospect.ovr, projectedRound: prospect.draftRound });
-      if (teamAbbr === c.teamAbbr) afterUserPick(c, prospect, round, pickInRound, mulberry32(seedFromString(c.id + "-afterpick-" + c.draftPickIndex)));
-      c.draftPickIndex += 1;
-      const gradeRng = mulberry32(seedFromString(c.id + "-draftgrade"));
-      maybeFireDraftGrade(c, gradeRng);
-      return c;
-    });
-  }
-
   // Draft automático até a vez do usuário (no espectador não existe "vez do usuário": roda o draft inteiro).
   // Uma escolha da IA. Devolve o registro da pick, ou null se for a vez do usuário / não há prospects.
   function draftOneAI(c, rng) {
@@ -873,56 +855,6 @@ export default function App() {
     maybeFireDraftGrade(c, rng);
     sortAIDepth(c);
   }
-  // ---- draft ao vivo: uma escolha da IA por tick, com comentário e eventos de sala de guerra ----
-  function liveDraftTick() {
-    setCareer((prev) => {
-      if (!prev.draftOrder || prev.pendingDraftEvent) return prev;
-      const c = structuredClone(prev);
-      const order = c.draftOrder, total = order.length * 7, draftYear = c.year + 1;
-      if (c.draftPickIndex >= total) return prev;
-      const rng = mulberry32(seedFromString(c.id + "-live-" + c.draftPickIndex + "-" + Math.floor(Math.random() * 1e6)));
-      const rec = draftOneAI(c, rng);
-      if (!rec) return prev;                                  // é a vez do usuário
-      const cm = pickCommentary(c, rec, rng);
-      pushFeed(c, { key: "p" + (c.draftPickIndex - 1), round: rec.round, pick: rec.pick, teamAbbr: rec.teamAbbr, text: cm.text, tone: cm.tone });
-      const nIdx = c.draftPickIndex;
-      if (nIdx >= total) { maybeFireDraftGrade(c, rng); sortAIDepth(c); return c; }
-      let untilMine = 99;
-      for (let k = 0; k < 10 && nIdx + k < total; k++) {
-        const r = Math.floor((nIdx + k) / order.length) + 1;
-        if (resolvePickOwner(c.futurePicks, order, draftYear, r, nIdx + k) === c.teamAbbr) { untilMine = k; break; }
-      }
-      const round = Math.floor(nIdx / order.length) + 1;
-      const x = { idx: nIdx, round, pickInRound: (nIdx % order.length) + 1, untilMine };
-      const ev = untilMine === 0 ? rollMyTurnEvent(c, x, rng) : rollBetweenEvent(c, x, rng);
-      if (ev) c.pendingDraftEvent = ev;
-      return c;
-    });
-  }
-  function onChooseDraftEvent(eventUid, optionIdx) {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      resolveDraftEvent(c, eventUid, optionIdx, mulberry32(seedFromString(c.id + "-devchoice-" + eventUid)));
-      return c;
-    });
-  }
-  // Ação de scouting do usuário: gasta pontos e revela atributos/perfil de um prospect.
-  function onScout(prospectId, actionId) {
-    const c = structuredClone(career);
-    const p = c.draftClass?.find((x) => x.id === prospectId);
-    if (!p) return { ok: false, msg: "Prospect indisponível." };
-    const r = doScout(c, p, actionId, mulberry32(seedFromString(c.id + "-scout-" + prospectId + "-" + (c.scouting?.log?.length || 0) + actionId)));
-    if (r.ok) setCareer(c);
-    return r;
-  }
-  function simToMyPick() {
-    setCareer((prev) => {
-      const c = structuredClone(prev);
-      draftAuto(c);
-      return c;
-    });
-  }
-
   // ---- espectador: simulação rápida da liga inteira ----
   // Uma "unidade" = 1 semana, 1 rodada de playoffs, ou a offseason inteira (free agency + draft + virada de ano).
   function spectatorUnit(c) {
@@ -1007,6 +939,10 @@ export default function App() {
       );
   }
 
+  const saveBanner = saveStatus === "error" ? (
+    <div className="fixed top-0 inset-x-0 z-[60] bg-red-600 text-white text-xs text-center py-1.5 px-3">⚠️ Não foi possível salvar o jogo (armazenamento bloqueado ou cheio). Tentando de novo...</div>
+  ) : null;
+
   if (career.spectator) {
     const SPEC_NAV = [
       { key: "spec", label: "Liga", icon: "👁️" }, { key: "schedule", label: "Tabela", icon: "📅" },
@@ -1015,6 +951,7 @@ export default function App() {
     const navKey = ["hub", "game", "menu"].includes(screen) ? "spec" : screen;
     return (
       <div className="min-h-screen bg-[#0B1220] text-slate-100 font-sans">
+        {saveBanner}
         <SpectatorTopBar career={career} onExit={onRestart} disabled={!!simProgress} />
         <div className="px-4 pt-4 max-w-lg mx-auto">
           {navKey === "spec" && <SpectatorScreen career={career} busy={!!simProgress} onStep={() => simSpectator("step")} onSimToEnd={() => simSpectator("season")} onSimSeasons={(n) => simSpectator(n)} onFork={forkSpectator} onOpenTeam={openTeam} go={go} />}
@@ -1043,6 +980,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#0B1220] text-slate-100 font-sans">
+      {saveBanner}
       <TopBar team={myTeam} career={career} />
       <div className="px-4 pt-4 max-w-lg mx-auto">
         {screen === "hub" && <HubScreen career={career} myTeam={myTeam} go={go} onPlayWeek={onHubAction} onSimPlayoffRound={onHubAction} onSimSeason={simSeason} onDismissAlert={onDismissAlert} onDismissNotice={onDismissNotice} onOpenTeam={openTeam} />}
@@ -1058,13 +996,13 @@ export default function App() {
         {screen === "history" && <HistoryScreen career={career} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
         {screen === "game" && <GameScreen career={career} myTeam={myTeam} go={go} onAdvance={advanceGameReveal} onSkipToHighlight={advanceGameToHighlight} onSimAll={simGameToEnd} />}
         {screen === "freeagency" && <FreeAgencyScreen career={career} myTeam={myTeam} onOffer={makeFreeAgentOffer} onOpenPlayer={openFreeAgent} onAdvanceMarket={advanceFreeAgencyMarket} />}
-        {screen === "draft" && career.draftClass && <DraftScreen career={career} myTeam={myTeam} onDraftPick={draftPick} onSimToMyPick={simToMyPick} onOpenPlayer={openProspect} onScout={onScout} onLiveTick={liveDraftTick} onChooseDraftEvent={onChooseDraftEvent} />}
+        {screen === "draft" && career.draftClass && <DraftScreen career={draft.view} myTeam={myTeam} onDraftPick={draft.userPick} onSimToMyPick={draft.skipToMyPick} onOpenPlayer={openProspect} onScout={draft.scout} onLiveTick={draft.liveTick} onChooseDraftEvent={draft.chooseEvent} />}
         {screen === "trade" && <TradeScreen myTeam={myTeam} career={career} onTrade={proposeTrade} onOpenPlayer={openPlayer} />}
         {screen === "stats" && <StatsScreen career={career} myTeam={myTeam} onOpenPlayer={openPlayer} onOpenTeam={openTeam} />}
         {screen === "teamDetail" && detail?.type === "team" && <TeamDetailScreen abbr={detail.abbr} career={career} myTeam={myTeam} onBack={closeDetail} onOpenPlayer={openPlayer} />}
         {screen === "playerDetail" && detail?.type === "player" && <PlayerDetailScreen playerId={detail.playerId} teamAbbr={detail.teamAbbr} career={career} onBack={closeDetail} onOpenTeam={openTeam} onOpenPlayer={openPlayer} />}
         {screen === "playerDetail" && detail?.type === "freeagent" && <FreeAgentDetailScreen playerId={detail.playerId} career={career} myTeam={myTeam} onOffer={makeFreeAgentOffer} onWithdraw={withdrawFreeAgentOffer} onBack={closeDetail} />}
-        {screen === "playerDetail" && detail?.type === "draft" && <ProspectDetailScreen playerId={detail.playerId} career={career} myTeam={myTeam} onBack={closeDetail} onScout={onScout} onDraftPick={(p) => { draftPick(p); closeDetail(); }} />}
+        {screen === "playerDetail" && detail?.type === "draft" && <ProspectDetailScreen playerId={detail.playerId} career={draft.view} myTeam={myTeam} onBack={closeDetail} onScout={draft.scout} onDraftPick={(p) => { draft.userPick(p); closeDetail(); }} />}
       </div>
       <BottomNav screen={screen} go={go} hasUnwatchedGame={!!(career.lastGame && (career.gameRevealCount ?? 0) < career.lastGame.log.length)} />
       {career.pressPending && <PressModal event={career.pressPending} onChoose={choosePress} />}

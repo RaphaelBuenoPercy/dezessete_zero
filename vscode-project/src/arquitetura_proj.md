@@ -2,19 +2,20 @@
 
 Este documento é o manual mestre do projeto: mapeia todos os módulos, os fluxos principais e as convenções que **não podem ser quebradas**. Ele orienta a IA a fazer alterações cirúrgicas na base de código. Leia a **Parte 0** antes de mexer em qualquer coisa.
 
-**Stack:** React (componentes funcionais) + Tailwind (classes utilitárias, tema escuro `#0B1220` / `#121a2c`) + JS puro no motor. Sem backend: o save fica no `localStorage` (`nflcareer:<id>`). Idioma da interface: **português (BR)**. O usuário joga principalmente no **celular** (telas estreitas, listas roláveis, botões grandes).
+**Stack:** React (componentes funcionais) + Tailwind (classes utilitárias, tema escuro `#0B1220` / `#121a2c`) + JS puro no motor. Sem backend: o save fica no **IndexedDB** (`lib/storage.js`). Idioma da interface: **português (BR)**. O usuário joga principalmente no **celular** (telas estreitas, listas roláveis, botões grandes).
 
 **Estrutura de pastas (`src/`):**
 
 ```
 App.jsx  main.jsx  customRosters.js
-lib/        rng.js
+lib/        rng.js  storage.js
+hooks/      useAutoSave.js  useDraftSession.js
 data/       names.js  rosterSlots.js  teams.js
 engine/     simulation.js  ratings.js  playerGen.js  nicknames.js  press.js  coachesGen.js  staffEffects.js
 season/     careerState.js  depth.js  morale.js  contracts.js  freeAgencyAI.js  negotiation.js  trades.js  roster.js
             picks.js  scouting.js  attrLabels.js  fog.js  draftEvents.js  legacy.js  offseason.js  records.js
             rivalries.js  powerRankings.js  weeklyRecap.js  teamIdentity.js  standings.js  stats.js
-            events.js  coachingCarousel.js  archive.js  allTime.js
+            events.js  coachingCarousel.js  archive.js  allTime.js  draftSession.js
 screens/    HubScreen  MarketScreens  SeasonScreens  TeamManagementScreens  TeamAndPlayer  MenuScreens
             HistoryScreen  AllTimePanel  SpectatorScreens
 components/ ui.jsx  CoachCard.jsx  Fog.jsx  AllPro.jsx  logos/*.png
@@ -32,7 +33,7 @@ components/ ui.jsx  CoachCard.jsx  Fog.jsx  AllPro.jsx  logos/*.png
 6. **Fog of War do draft:** `draftClass[i].attrs/ovr` são os valores **reais**. A UI só mostra o que `career.scouting.reveals` liberou (`fogRead`, `FogAttrBars`). A IA draftea pelo OVR real. Nunca exiba `p.ovr` de prospect direto.
 7. **Coordenadores têm rendimento oculto:** o nível (S–D) é só reputação; o rendimento real é `talent × form × fit` (ocultos). As telas mostram apenas o bônus *nominal* (`coachBonusMap(coach, true)`).
 8. **Moral é narrativa.** `morale` (0–100) **não entra na matemática do jogo**; ela influencia contratos (`extensionAsk`), notícias, coletivas e eventos. Mexer nela é seguro; para mexer na força em campo use `tmpMods`.
-9. **Persistência:** o `career` inteiro é serializado a cada mudança de estado. Evite guardar objetos grandes (box scores completos, históricos longos). O `localStorage` tem ~5 MB: `archive.js` enxuga box scores e o espectador poda notícias/históricos. Falhas de gravação são silenciosas.
+9. **Persistência:** o `career` é gravado no **IndexedDB** (clone estruturado, sem JSON) por `useAutoSave`, com debounce de ~1,2 s, pausado durante simulações em lote e com gravação extra ao esconder/fechar a aba. O menu lista resumos leves (`meta`), sem carregar a carreira. Saves antigos do `localStorage` (`nflcareer:<id>`) são migrados na abertura do menu (`migrateLegacy`) ou na primeira carga (`onLoadCareer`). Erros de gravação aparecem num banner vermelho. Mesmo sem o limite de 5 MB, evite objetos enormes: `archive.js` enxuga box scores e o espectador poda notícias/históricos.
 10. **Saves antigos:** toda feature nova precisa ser retrocompatível. Padrão: uma função `ensureXxx(career)` idempotente chamada em `onCreateCareer` e `onLoadCareer` (hoje: `upgradeCareerPlayers`, `ensureCoachingState`, `ensureEventsState`, `ensureAllTimeLeaders`, `ensureScoutingState`).
 11. **Convenção de slots do elenco:** o motor lê **slots**, não posições. `QB1`/`QB2`, `RB1`, `WR1–3`, `TE1`, `LT/LG/C/RG/RT`, front 4-3 (`DE1, DE2, DT1, DT2, LB1–3`) ou 3-4 (`DE1, DE2, NT1, LB1–4`), `CB1–3`, `S1–2`, `K1`, `P1` e reservas `BEN1…BENn`. Qualquer movimentação de jogadores precisa terminar com o jogador certo no slot certo (use `autoSortDepth`/`refreshGroups`).
 
@@ -41,7 +42,8 @@ components/ ui.jsx  CoachCard.jsx  Fog.jsx  AllPro.jsx  logos/*.png
 ## PARTE 1: NÚCLEO DA APLICAÇÃO (`src/`)
 
 * **`App.jsx`**: controlador principal (estado `career`, `screen`, `detail`, saves, progresso de simulação). Persiste automaticamente no `localStorage`.
-  * **Criação/carga:** `onCreateCareer`, `onStartSpectator`, `forkSpectator` (copia a liga para novo save), `onLoadCareer`, `onDeleteCareer`, `onRestart`.
+  * **Criação/carga:** `onCreateCareer`, `onStartSpectator`, `forkSpectator` (copia a liga para novo save), `onLoadCareer` (async: IndexedDB, com fallback e migração do localStorage), `onDeleteCareer`, `onRestart` (aguarda o último `flushSave`).
+  * **Persistência:** `useAutoSave(career, { paused })` e `refreshSaves` (lista resumos do IndexedDB).
   * **Loop da temporada:**
     * `advanceWeek`: simula a semana (jogo do usuário em detalhe, os outros em modo rápido), aplica resultados, atualiza moral, lesões, rivalidades, recordes e recap; dispara coletivas; **cobra promessas** (`checkPromises`), expira modificadores (`tickTempMods`) e **sorteia os eventos da próxima semana** (`rollWeeklyEvents`).
     * `advancePlayoffRound`: avança o mata-mata. Ao coroar o campeão entra na **offseason** (contratos de IA, free agency inicial, classe do draft, `resetScouting`, **coaching carousel**).
@@ -49,7 +51,7 @@ components/ ui.jsx  CoachCard.jsx  Fog.jsx  AllPro.jsx  logos/*.png
     * `simSeason` (usuário): temporada inteira com `autoSortDepth`, descartando coletivas e eventos.
     * `simSpectator(mode)`: `"step"`, `"season"` ou N temporadas, em fatias de tempo, com progresso e cancelamento (`spectatorUnit` = 1 semana, 1 rodada de playoffs ou a offseason inteira).
   * **Ações do usuário:** escalação (`swapSlot`, `autoSortDepthChart`), extensões (`extendContract`, `releaseExpiring`), free agency (`makeFreeAgentOffer`, `withdrawFreeAgentOffer`, `advanceFreeAgencyMarket`), draft, trocas (`proposeTrade`), coletivas (`choosePress`), eventos (`onChooseEvent`), comissão técnica (`onHireCoach`/`onFireCoach`/`onRenewCoach`).
-  * **Draft:** `draftPick`, `draftOneAI`, `draftAuto`, `liveDraftTick`, `onScout`, `onChooseDraftEvent`, `simToMyPick`. **Free agency:** `faWave` (onda de ofertas + resolução entre IAs).
+  * **Draft:** o usuário usa `useDraftSession` (`draft.userPick`, `draft.liveTick`, `draft.scout`, `draft.chooseEvent`, `draft.skipToMyPick`; ver `season/draftSession.js`). `draftOneAI`/`draftAuto` ficam só para o modo espectador (headless, em memória). **Free agency:** `faWave` (onda de ofertas + resolução entre IAs).
   * **Raiz de renderização:** menu, shell do espectador, `TopBar`/`BottomNav`, `PressModal`, `EventModal`, overlay de progresso.
 * **`customRosters.js`**: elencos customizados por time. Aceita atributos novos **e** antigos (`ARM`, `HND`, `RSH`... via `LEGACY_ATTR_MAP`); `ovr`, se informado, é a meta para os atributos livres; `scheme` escolhe o front e o DC é gerado para combinar.
 * **`main.jsx`**: ponto de entrada React.
@@ -115,6 +117,7 @@ components/ ui.jsx  CoachCard.jsx  Fog.jsx  AllPro.jsx  logos/*.png
 * **`scouting.js`**: `ovrGrade`, `gradeColor`, `fitForTeam`, `pickValueRead` (roubada/reach pela rodada projetada), `pickForTeamAI` (janela dos 8 primeiros do board, equilibra valor e necessidade usando o OVR real) e `scoutingReport` (usa `attrHighlights`).
 * **`attrLabels.js`**: `TRAIT_LABELS`, `CONCERN_LABELS`, `attrHighlights`.
 * **`fog.js`**: Fog of War. `c.scouting = { points, total, reveals, log }`. Ações (`SCOUT_ACTIONS`): campus 1, vídeo 2, workout 3, entrevista 2, avaliação completa 5 (12 pontos por draft). `fogRead` devolve a faixa de OVR, `consensusScore` é a ordem "da mídia" (OVR real + `scoutNoise`). Perfil oculto `p.trait` (normal, trabalhador, líder, problemático, frágil), revelado pela entrevista.
+* **`draftSession.js`** (+ `hooks/useDraftSession.js`): estado volátil do draft **fora do `career`**. Funções puras e determinísticas (`createDraftSession`, `liveTick`, `skipToUser`, `userPick`, `scoutPure`, `chooseEventPure`) trabalham numa sessão que imita os campos que `draftEvents.js`/`fog.js` esperam; `commitDraftSession(prev, d, {final})` faz o merge com compartilhamento estrutural (só os times que assinaram ganham novo elenco). O merge acontece a cada 32 escolhas, a cada escolha do usuário, ao terminar o draft ou ao sair da tela; as telas leem `draft.view` (`draftOverlay`).
 * **`draftEvents.js`**: draft ao vivo. `pickCommentary`, `rollMyTurnEvent` / `rollBetweenEvent`, `resolveDraftEvent`, `afterUserPick` (reação da torcida, pedidos cumpridos ou ignorados, perfil revelado).
 
 ### 4.5 Comissão técnica e eventos
@@ -227,8 +230,8 @@ Campos principais: `id`, `coachName`, `teamAbbr` (null no espectador), `spectato
 * `markRetiredLeaders` marca como aposentado quem não está em elenco, mercado ou draft (inclui free agents que ninguém contratou).
 * `legacy.js` e `powerRankings.js` têm `seasonValueScore` duplicado.
 * `freeAgencyAI.runFreeAgencyWave` é a versão antiga de uma onda de free agency; o fluxo atual usa `negotiation.js`.
-* O modo ao vivo do draft clona a carreira a cada escolha; se ficar pesado, mova o estado do draft para um objeto separado.
-* Saves grandes (muitas temporadas simuladas) podem não caber no `localStorage`.
+* O draft ao vivo usa sessão separada; qualquer código novo que leia `draftClass`/`scouting`/`draftFeed` na tela do draft deve ler de `draft.view`, não de `career`, ou verá dados defasados até o próximo merge.
+* O IndexedDB elimina o limite de ~5 MB do `localStorage`, mas o clone estruturado de um `career` muito grande ainda custa tempo; por isso o autosave é com debounce e pausado em simulações em lote.
 * Telas que esperam `myTeam` no espectador dependem de `SPECTATOR_STUB` ter os campos que elas leem.
 * `insertPlayer` **sobrescreve** o jogador que ocupa o slot. Se `findSlotForRookie` cair no último caso (sem reservas), um titular da posição pode ser substituído por um novato/reforço. Código que só quer "adicionar" um jogador sem cortar ninguém (como o `convertFront` e o `fillVacated`) faz `roster.push` com um slot livre.
 * `executeTrade` e `evaluateTrade` usam `needFactor`/`lossFactor` pelo número de titulares do front atual (`startersAt`: DL 4 e LB 3 no 4-3; DL 3 e LB 4 no 3-4); ao trocar de DC (front diferente) os cálculos mudam junto.

@@ -48,6 +48,10 @@ function winPct(t) {
 // Builds the recap for one week of `schedule` (already-played games only).
 // Returns null if nothing in that week has been played yet.
 function buildWeeklyRecap(leagueTeams, weekGames) {
+  // Lei do Ex: quem já jogou pelo adversário da semana (p.formerTeam) e brilhou contra ele.
+  const former = {};
+  Object.values(leagueTeams).forEach((t) => t.roster.forEach((p) => { if (p.formerTeam) former[p.id] = p.formerTeam; }));
+  const revenge = [];
   const games = (weekGames || []).filter((g) => g.homeScore !== undefined && g.boxScore);
   if (!games.length) return null;
 
@@ -55,12 +59,15 @@ function buildWeeklyRecap(leagueTeams, weekGames) {
   const standouts = [];
   games.forEach((g) => {
     ["home", "away"].forEach((side) => {
-      const abbr = g[side];
+      const abbr = g[side], oppAbbr = side === "home" ? g.away : g.home;
       (g.boxScore?.[side] || []).forEach((p) => {
         const s = p.stats || {};
         const score = gameValueScore(s);
-        if (score > potwScore) { potwScore = score; potw = { id: p.id, name: p.name, pos: p.pos, teamAbbr: abbr, line: standoutLine(s) || "atuação de destaque" }; }
-        const line = standoutLine(s);
+        const base = standoutLine(s);
+        const isRevenge = !!base && former[p.id] === oppAbbr;
+        const line = isRevenge ? `${base} · 🔥 Lei do Ex contra o ${oppAbbr}` : base;
+        if (isRevenge) revenge.push({ id: p.id, name: p.name, pos: p.pos, teamAbbr: abbr, vsAbbr: oppAbbr, line, text: `🔥 Lei do Ex: ${p.name} (${abbr}) castigou o ex-time ${oppAbbr} com ${base}.` });
+        if (score > potwScore) { potwScore = score; potw = { id: p.id, name: p.name, pos: p.pos, teamAbbr: abbr, line: line || "atuação de destaque" }; }
         if (line) standouts.push({ id: p.id, name: p.name, pos: p.pos, teamAbbr: abbr, line });
       });
     });
@@ -87,7 +94,7 @@ function buildWeeklyRecap(leagueTeams, weekGames) {
     totalGames: games.length,
     potw,
     standouts: standouts.filter((s) => !potw || s.id !== potw.id).slice(0, 8),
-    upsets, blowouts, shutouts,
+    upsets, blowouts, shutouts, revenge,
   };
 }
 
