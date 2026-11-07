@@ -108,7 +108,6 @@ export default function App() {
   const simCancel = useRef(false);
   const [career, setCareer] = useState(null);
   const [pressChoice, setPressChoice] = useState(null);
-  const [swapFrom, setSwapFrom] = useState(null);
   const [simProgress, setSimProgress] = useState(null);
 
   // Lista os saves a partir do IndexedDB (resumos leves). Saves antigos do localStorage são migrados aqui.
@@ -747,18 +746,16 @@ export default function App() {
     });
   }
 
-  function swapSlot(fromSlot) {
-    if (!swapFrom) { setSwapFrom(fromSlot); return; }
-    if (swapFrom === fromSlot) { setSwapFrom(null); return; }
+  // Troca direta de dois slots da mesma posição (atualização imutável: só o time do usuário ganha novo elenco).
+  function swapSlots(slotA, slotB) {
+    if (!slotA || !slotB || slotA === slotB) return;
     setCareer((prev) => {
-      const c = structuredClone(prev);
-      const t = c.leagueTeams[c.teamAbbr];
-      const pA = t.roster.find((p) => p.slot === swapFrom);
-      const pB = t.roster.find((p) => p.slot === fromSlot);
-      if (pA && pB && pA.pos === pB.pos) { pA.slot = fromSlot; pB.slot = swapFrom; }
-      return c;
+      const t = prev.leagueTeams[prev.teamAbbr];
+      const pA = t.roster.find((p) => p.slot === slotA), pB = t.roster.find((p) => p.slot === slotB);
+      if (!pA || !pB || pA.pos !== pB.pos) return prev;
+      const roster = t.roster.map((p) => (p === pA ? { ...p, slot: slotB } : p === pB ? { ...p, slot: slotA } : p));
+      return { ...prev, leagueTeams: { ...prev.leagueTeams, [t.abbr]: { ...t, roster } } };
     });
-    setSwapFrom(null);
   }
 
   // Logs the outcome of a batch of signings resolved this tick, phrased
@@ -984,8 +981,8 @@ export default function App() {
       <TopBar team={myTeam} career={career} />
       <div className="px-4 pt-4 max-w-lg mx-auto">
         {screen === "hub" && <HubScreen career={career} myTeam={myTeam} go={go} onPlayWeek={onHubAction} onSimPlayoffRound={onHubAction} onSimSeason={simSeason} onDismissAlert={onDismissAlert} onDismissNotice={onDismissNotice} onOpenTeam={openTeam} />}
-        {screen === "roster" && <RosterScreen myTeam={myTeam} onOpenPlayer={(id) => openPlayer(id, myTeam.abbr)} />}
-        {screen === "depth" && <DepthChartScreen myTeam={myTeam} onSwap={swapSlot} onAutoSort={autoSortDepthChart} />}
+        {screen === "roster" && <RosterScreen myTeam={myTeam} career={career} onOpenPlayer={(id) => openPlayer(id, myTeam.abbr)} />}
+        {screen === "depth" && <DepthChartScreen myTeam={myTeam} career={career} onSwapSlots={swapSlots} onAutoSort={autoSortDepthChart} onOpenPlayer={(id) => openPlayer(id, myTeam.abbr)} />}
         {screen === "honors" && <HonorsScreen career={career} onBack={() => go("hub")} onOpenPlayer={openPlayer} />}
         {screen === "contracts" && <ContractsScreen myTeam={myTeam} onExtend={extendContract} onRelease={releaseExpiring} onBack={() => go("hub")} />}
         {screen === "staff" && <StaffScreen career={career} myTeam={myTeam} go={go} onFire={onFireCoach} onRenew={onRenewCoach} />}
