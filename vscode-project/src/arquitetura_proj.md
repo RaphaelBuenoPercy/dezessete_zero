@@ -15,8 +15,8 @@ engine/     simulation.js  ratings.js  playerGen.js  nicknames.js  press.js  coa
 season/     careerState.js  depth.js  morale.js  contracts.js  freeAgencyAI.js  negotiation.js  trades.js  roster.js
             picks.js  scouting.js  attrLabels.js  fog.js  draftEvents.js  legacy.js  offseason.js  records.js
             rivalries.js  powerRankings.js  weeklyRecap.js  teamIdentity.js  standings.js  stats.js
-            events.js  coachingCarousel.js  archive.js  allTime.js  draftSession.js
-screens/    HubScreen  MarketScreens  SeasonScreens  TeamManagementScreens  TeamAndPlayer  MenuScreens
+            events.js  coachingCarousel.js  archive.js  allTime.js  draftSession.js  lineup.js
+screens/    HubScreen  MarketScreens  SeasonScreens  TeamManagementScreens  LineupScreens  TeamAndPlayer  MenuScreens
             HistoryScreen  AllTimePanel  SpectatorScreens
 components/ ui.jsx  CoachCard.jsx  Fog.jsx  AllPro.jsx  logos/*.png
 ```
@@ -70,7 +70,10 @@ components/ ui.jsx  CoachCard.jsx  Fog.jsx  AllPro.jsx  logos/*.png
   * `StatsScreen` com 5 abas: Líderes, Power Rankings, Tier Lists, Recordes e **Histórico** (`AllTimePanel`).
   * **`CoachMarketScreen`** (contratar OC/DC/SC com impacto nominal por setor).
 * **`SeasonScreens.jsx`**: `ScheduleScreen` (tabela, playoffs, rivalidades), `ResultsScreen` (aceita `career.isArchive`; usa `WeeklyRecapCard`), `GameScreen`, `HonorsScreen` (cerimônia + All-Pro), `PressModal`, **`EventModal`** (eventos semanais e do draft; categorias crisis, positive, strategy, rivalry, media, relations, draft).
-* **`TeamManagementScreens.jsx`**: `RosterScreen`, `DepthChartScreen`, `TacticsScreen`, `ContractsScreen`, **`StaffScreen`**.
+* **`LineupScreens.jsx`**: **`RosterScreen`** e **`DepthChartScreen`** (re-exportados por `TeamManagementScreens.jsx`, então os imports do `App` não mudam).
+  * Escalação: alertas acionáveis (titular lesionado, reserva melhor que o titular, moral baixa), força dos setores com ranking na liga, campo em SVG com cor por Overall/Moral/Idade e **ficha do slot** (toque num jogador: lista quem pode jogar ali, diferença de OVR e botão "Colocar aqui", via `onSwapSlots(slotA, slotB)`), mais listas por grupo.
+  * Elenco: folha salarial com barra de cap, resumo (OVR dos titulares, lesionados, contratos no fim, moral), filtro por setor, ordenação e filtros de problemas/contratos.
+* **`TeamManagementScreens.jsx`**: `TacticsScreen`, `ContractsScreen`, **`StaffScreen`** (e re-exporta `RosterScreen`/`DepthChartScreen`).
 * **`TeamAndPlayer.jsx`**: `TeamDetailScreen` e `PlayerDetailScreen` (atributos dinâmicos, carreira, All-Pro 1º/2º time, posição no Top 10 histórico).
 * **`HistoryScreen.jsx`**: temporadas passadas (jogos, tabela, líderes, prêmios + All-Pro). Reaproveita `ResultsScreen` com um "career de visualização".
 * **`AllTimePanel.jsx`**: aba Histórico do `StatsScreen`.
@@ -92,6 +95,7 @@ components/ ui.jsx  CoachCard.jsx  Fog.jsx  AllPro.jsx  logos/*.png
 ### 4.1 Estado e persistência
 * **`careerState.js`**: `newCareerState(teamAbbr, coachName)` monta o save: liga (`buildLeague`), calendário (`buildSchedule`), `tendencies` (`passRatio`, `aggressive`, `rb2CarryShare`, `personnel`, `lightFormationShare`), `freeAgentPool`, `futurePicks`, `rivalries`, `nemeses`, `powerRankings`, `predictionRecord`, `leagueRecords`, `allTimeLeaders`, campos de eventos e `news`. Exporta também `AI_TEND` (tendências fixas das IAs).
 * **`archive.js`**: `snapshotLeaders` e `archiveSeason` guardam, em `career.seasonArchive[ano]`, o mesmo formato da temporada atual (schedule/playoffs enxutos), tabela, líderes, prêmios e All-Pro. Só as 5 últimas temporadas mantêm box score (espectador: 1).
+* **`lineup.js`**: helpers puros das telas de elenco/escalação (`groupStrength` com ranking na liga, `lineupAlerts`, `candidatesFor`, `starterSlots`, `depthGroups`, cores de OVR/idade).
 * **`allTime.js`**: Top 100 por categoria (`allTimeLeaders`). `updateLeadersFromTeams` roda dentro de `applyCareerRollover`; `markLeadersRetired` dentro de `retireAndRefreshLeague`; `markRetiredLeaders` é varredura de segurança. `getAllTimeList` e `allTimeRanksFor` alimentam as telas (ativos somam `careerStats` + `seasonStats`).
 
 ### 4.2 Elenco, contratos e moral
